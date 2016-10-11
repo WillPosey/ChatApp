@@ -5,8 +5,8 @@
 #	Makefile for Internet Chat Application
 #	
 #####################################################
-FLAGS		= -std=c++11 -g -Wall -Wno-unused-variable -Wno-unused-function
-LINK		= 
+FLAGS		= -std=c++11 -g -Wall -Wno-unused-variable -Wno-unused-function -Wno-sign-compare
+LINK		= -pthread
 SERVER_SRC	= ChatServer.cpp
 CLIENT_SRC	= ChatClient.cpp
 SERVER_OBJ	= $(SERVER_SRC:.cpp=.o)
@@ -29,5 +29,11 @@ $(SERVER_TARGET): $(SERVER_OBJ)
 
 .PHONY		: clean
 
+client_clean	:
+		rm -f $(CLIENT_OBJ) ChatClient
+
+server_clean	:
+		rm -f $(SERVER_OBJ) ChatServer
+
 clean 		: 
-		rm *.o ChatServer ChatClient
+		rm -f *.o ChatServer ChatClient

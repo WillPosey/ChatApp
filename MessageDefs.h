@@ -23,7 +23,7 @@
 #define BRDCST_MSG          10      // Client, message to send to all users
 #define BRDCST_FILE         11      // Client, file to send to all users
 #define BLKCST_MSG          12      // Client, message to send to all users except one
-#define BLKCAST_FILE        13      // Client, file to send to all users except one
+#define BLKCST_FILE         13      // Client, file to send to all users except one
 #define MSG_RCV             14      // Server, message sent to a user
 #define FILE_RCV            15      // Server, file sent to a user
 #define SERVER_SHUTDOWN     16      // Server, server broadcast indicating it is shutting down
@@ -36,5 +36,16 @@
 #define MSG_SRC_END         ':'
 #define USERNAME_END        ' '
 
+/* Local Commands for Clients */
+#define USER_MARK           "-u"
+#define CONNECT_CMD         "connect"
+#define DISCONNECT_CMD      "disconnect"
+#define EXIT_CMD            "exit"
+#define SEND_CMD            "send"
+#define SEND_FILE_CMD       "send-file"
+#define BRDCST_CMD          "broadcast"
+#define BRDCST_FILE_CMD     "broadcast-file"
+#define BLKCST_CMD          "blockcast"
+#define BLKCST_FILE_CMD     "blockcast-file"
 
 #endif //MESSAGE_DEFS_H
