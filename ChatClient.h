@@ -19,6 +19,8 @@
 #include <netdb.h>
 #include <unistd.h>
 
+#define BUFFER_LENGTH           100
+
 using namespace std;
 
 class ChatClient
@@ -35,12 +37,13 @@ public:
     int SetupComplete();
 
     void ClientSend();
-    int GetInput    (string input, string& output){return PARSE_INPUT;};
+    int GetInput    (string input, string& output){string in = ""; while(in.compare("exit") != 0)getline(cin, in); SetExit(true); return PARSE_INPUT;};
     int ParseInput  (string input, string& output){return SEND_INPUT;};
     int SendInput   (string input, string& output){return GET_INPUT;};
     int ErrorInput  (string input, string& output){return GET_INPUT;};
 
     void ClientRecv();
+    string ReceiveFromServer();
     int GetMsgType  (string msg, string& display){display = msg; display += ":1"; cout << display << endl; return 1;};
     int GetSource   (string msg, string& display){display += ":2"; cout << display << endl; return 2;};
     int GetMsg      (string msg, string& display){display += ":3"; cout << display << endl; return 3;};
