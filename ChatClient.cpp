@@ -336,16 +336,11 @@ void ChatClient::ClientSend()
 void ChatClient::ClientRecv()
 {
     string msg, recvMsg, output;
-    int i = 0;
-    char c = 65;
+    int currentState;
 
-    while((++i)!=6)
+    while(1)
     {
-        recvMsg = "";
-        c++;
-        recvMsg = c;
-        output = "";
-        int currentState = GET_TYPE;
+        currentState = GET_TYPE;
 
         msg = ReceiveFromServer();
         cout << msg.substr(1,msg.length() - 1) << "disconnected" << endl;

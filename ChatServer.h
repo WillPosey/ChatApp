@@ -50,11 +50,11 @@ public:
     string CreateAllUsersMsg();
 
     char   GetMsgTag(string msg);
-    string GetMsgSource(string msg);
     string GetMsgDestination(string msg);
     string GetBlockedDestination(string msg);
-    string GetMsgFilename(string msg);
-    string GetMsgData(string msg);
+    string GetMsgFilename(string msg, char tag);
+    string GetMsgData(string msg, char tag);
+    string RemoveMsgDestination(string msg);
 
     void DisplayMsg(string msg);
 

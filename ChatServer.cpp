@@ -192,7 +192,7 @@ bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
         newUsername.pop_back();   //remove END_MSG indicator
         if(UsernameAvailable(newUsername))
         {
-            DisplayMsg("[" + newUsername + "]: New Client Connection");
+            DisplayMsg("[" + newUsername + "]->CONNECTED");
             otherUsers = CreateAllUsersMsg();
             AddNewUser(newUsername, newSocket);
             usernameAccepted = true;
@@ -207,7 +207,6 @@ bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
     }
     newUsername = temp;
     recv(newSocket, &otherUsersReqBuf, 1, 0);
-    DisplayMsg("[" + newUsername + "]: Sending List of Other Users");
     send(newSocket, otherUsers.c_str(), otherUsers.length(), 0);
     NewConnection(newUsername);
     return true;
@@ -220,33 +219,66 @@ bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
  *******************************************************************/
 void ChatServer::ClientThread(int clientSocket, string username)
 {
-    string msg;
+    string recvMsg, sendMsg, source, destination, display, filename, data;
+    char recvTag, sendTag;
+
+    source = "[" + username + "]->";
 
     while(1)
     {
-        msg = ReceiveFromClient(clientSocket, username);
-        switch(GetMsgTag(msg))
+        recvMsg = ReceiveFromClient(clientSocket, username);
+        recvTag = GetMsgTag(recvMsg);
+        switch(recvTag)
         {
             case SEND_MSG:
-
+                sendTag = MSG_RCV;
+                destination = GetMsgDestination(recvMsg);
+                data = GetMsgData(recvMsg, recvTag);
+                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
+                DisplayMsg(source + "[" + destination + "]:" + data);
+                SendToClient(destination, sendMsg);
                 break;
             case SEND_FILE:
-
+                sendTag = FILE_RCV;
+                destination = GetMsgDestination(recvMsg);
+                filename = GetMsgFilename(recvMsg, recvTag);
+                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
+                DisplayMsg(source + "[" + destination + "]:" + filename);
+                SendToClient(destination, sendMsg);
                 break;
             case BRDCST_MSG:
-
+                sendTag = MSG_RCV;
+                data = GetMsgData(recvMsg, recvTag);
+                sendMsg = recvMsg.replace(0,1,1,sendTag);
+                DisplayMsg(source + "<BROADCAST>:" + data);
+                Broadcast(sendMsg);
                 break;
             case BRDCST_FILE:
-
+                sendTag = FILE_RCV;
+                filename = GetMsgFilename(recvMsg, recvTag);
+                sendMsg = recvMsg.replace(0,1,1,sendTag);
+                DisplayMsg(source + "<BROADCAST>:" + filename);
+                Broadcast(sendMsg);
                 break;
             case BLKCST_MSG:
-
+                sendTag = MSG_RCV;
+                destination = GetBlockedDestination(recvMsg);
+                data = GetMsgData(recvMsg, recvTag);
+                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
+                DisplayMsg(source + "<BLOCKCAST>[" + destination + "]:" + data);
+                Blockcast(destination, sendMsg);
                 break;
             case BLKCST_FILE:
-
+                sendTag = FILE_RCV;
+                destination = GetBlockedDestination(recvMsg);
+                filename = GetMsgFilename(recvMsg, recvTag);
+                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
+                DisplayMsg(source + "<BLOCKCAST>[" + destination + "]:" + filename);
+                Blockcast(destination, sendMsg);
                 break;
             case CLIENT_SHUTDOWN:
-                Disconnection(GetMsgSource(msg));
+                DisplayMsg(source + "DISCONNECTED");
+                Disconnection(username);
                 break;
             default:
                 break;
@@ -449,17 +481,6 @@ char ChatServer::GetMsgTag(string msg)
 
 /*******************************************************************
  *
- *      ChatServer::GetMsgSource
- *
- *******************************************************************/
-string ChatServer::GetMsgSource(string msg)
-{
-    int index = msg.find(MSG_SRC_END);
-    return msg.substr(1,index-1);
-}
-
-/*******************************************************************
- *
  *      ChatServer::GetMsgDestination
  *
  *******************************************************************/
@@ -483,12 +504,38 @@ string ChatServer::GetBlockedDestination(string msg)
 
 /*******************************************************************
  *
+ *      ChatServer::RemoveMsgDestination
+ *
+ *******************************************************************/
+string ChatServer::RemoveMsgDestination(string msg)
+{
+    int start = msg.find(MSG_SRC_END)+1;
+    int finish = msg.find(MSG_DST_END);
+    return msg.erase(start, finish-start);
+}
+
+/*******************************************************************
+ *
  *      ChatServer::GetMsgFilename
  *
  *******************************************************************/
-string ChatServer::GetMsgFilename(string msg)
+string ChatServer::GetMsgFilename(string msg, char tag)
 {
-    return "";
+    int start, finish;
+    switch(tag)
+    {
+        case SEND_FILE:
+        case BLKCST_FILE:
+            start = msg.find(MSG_DST_END)+1;
+            break;
+        case BRDCST_FILE:
+            start = msg.find(MSG_SRC_END)+1;
+            break;
+        default:
+            return "";
+    }
+    finish = msg.find(FILENAME_END);
+    return msg.substr(start, finish-start);
 }
 
 /*******************************************************************
@@ -496,8 +543,22 @@ string ChatServer::GetMsgFilename(string msg)
  *      ChatServer::GetMsgData
  *
  *******************************************************************/
-string ChatServer::GetMsgData(string msg)
+string ChatServer::GetMsgData(string msg, char tag)
 {
-    return "";
+    int start, finish;
+    switch(tag)
+    {
+        case SEND_MSG:
+        case BLKCST_MSG:
+            start = msg.find(MSG_DST_END)+1;
+            break;
+        case BRDCST_MSG:
+            start = msg.find(MSG_SRC_END)+1;
+            break;
+        default:
+            return "";
+    }
+    finish = msg.find(MSG_END);
+    return msg.substr(start, finish-start);
 }
 
