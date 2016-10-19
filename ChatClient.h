@@ -35,25 +35,28 @@ public:
     int GetUsername();
     int GetOtherUsers();
     int SetupComplete();
+    int WaitForExit();
 
     void ClientSend();
-    int GetInput    (string input, string& output){string in = ""; while(in.compare("exit") != 0)getline(cin, in); SetExit(true); return PARSE_INPUT;};
-    int ParseInput  (string input, string& output){return SEND_INPUT;};
-    int SendInput   (string input, string& output){return GET_INPUT;};
-    int ErrorInput  (string input, string& output){return GET_INPUT;};
+    int GetInput    (string& input, string& output);
+    int ParseInput  (string& input, string& output);
+    int SendMsg     (string& input, string& output);
+    int ErrorInput  (string& input, string& output);
 
     void ClientRecv();
     string ReceiveFromServer();
-    int GetMsgType  (string msg, string& display){display = msg; display += ":1"; cout << display << endl; return 1;};
-    int GetSource   (string msg, string& display){display += ":2"; cout << display << endl; return 2;};
-    int GetMsg      (string msg, string& display){display += ":3"; cout << display << endl; return 3;};
-    int GetFilename (string msg, string& display){display += ":4"; cout << display << endl; return 4;};
-    int GetFile     (string msg, string& display){display += ":5"; cout << display << endl; return 5;};
-    int Reply       (string msg, string& display){display += ":6"; cout << display << endl; return 6;};
-    int DisplayMsg  (string msg, string& display){display += ":7"; cout << display << endl; return 7;};
+    int GetMsgType      (string msg, string& display)
+    int GetSource       (string msg, string& display)
+    int GetMsg          (string msg, string& display)
+    int GetFilename     (string msg, string& display)
+    int GetFile         (string msg, string& display)
+    int Reply           (string msg, string& display)
+    int DisplayRecvMsg  (string msg, string& display)
 
     void SetExit(bool val);
     bool CheckExit();
+    void SetDisconnect(bool val);
+    bool CheckDisconnect();
     void SetShutdown(bool val);
     bool CheckShutdown();
 
@@ -65,7 +68,8 @@ private:
         USERNAME,
         GET_USERS,
         START_THREADS,
-        COMPLETE
+        COMPLETE,
+        CLIENT_EXIT
     } SetupCodes;
 
     typedef enum
@@ -73,7 +77,8 @@ private:
         GET_INPUT,
         PARSE_INPUT,
         SEND_INPUT,
-        ERROR_INPUT
+        ERROR_INPUT,
+        END_THREAD
     } SendCodes;
 
     typedef enum
@@ -88,15 +93,16 @@ private:
         PARSE_COMPLETE
     } RecvCodes;
 
-    int (ChatClient::*setupStateFunction[5])() = {  &ChatClient::GetServerInfo,
+    int (ChatClient::*setupStateFunction[6])() = {  &ChatClient::GetServerInfo,
                                                     &ChatClient::ConnectToServer,
                                                     &ChatClient::GetUsername,
                                                     &ChatClient::GetOtherUsers,
-                                                    &ChatClient::SetupComplete };
+                                                    &ChatClient::SetupComplete,
+                                                    &ChatClient::WaitForExit };
 
-    int (ChatClient::*sendStateFunction[4])(string input, string& output) = {   &ChatClient::GetInput,
+    int (ChatClient::*sendStateFunction[4])(string& input, string& output) = {  &ChatClient::GetInput,
                                                                                 &ChatClient::ParseInput,
-                                                                                &ChatClient::SendInput,
+                                                                                &ChatClient::SendMsg,
                                                                                 &ChatClient::ErrorInput };
 
     int (ChatClient::*recvStateFunction[7])(string msg, string& display) = {    &ChatClient::GetMsgType,
@@ -111,8 +117,8 @@ private:
     string username;
     vector<string> otherUsers;
 
-    bool exiting, serverExit;
-    pthread_mutex_t exitLock, shutdownLock, displayLock;
+    bool exiting, serverExit, disconnect;
+    pthread_mutex_t exitLock, shutdownLock, disconnectLock, displayLock;
 
     thread SendThread;
     thread RecvThread;

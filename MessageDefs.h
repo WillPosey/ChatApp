@@ -38,9 +38,6 @@
 #define USERNAME_END        '\v'
 
 /* Local Commands for Clients */
-#define USER_MARK           "-u"
-#define FILE_MARK           "-f"
-#define CONNECT_CMD         "connect"
 #define DISCONNECT_CMD      "disconnect"
 #define EXIT_CMD            "exit"
 #define SEND_CMD            "send"

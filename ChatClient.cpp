@@ -35,6 +35,7 @@ ChatClient::ChatClient()
     exiting = serverExit = false;
     pthread_mutex_init(&exitLock, NULL);
     pthread_mutex_init(&shutdownLock, NULL);
+    pthread_mutex_init(&disconnectLock, NULL);
     pthread_mutex_init(&displayLock, NULL);
 }
 
@@ -47,6 +48,7 @@ ChatClient::~ChatClient()
 {
     pthread_mutex_destroy(&exitLock);
     pthread_mutex_destroy(&shutdownLock);
+    pthread_mutex_destroy(&disconnectLock);
     pthread_mutex_destroy(&displayLock);
 }
 
@@ -72,6 +74,31 @@ bool ChatClient::CheckExit()
     pthread_mutex_lock(&exitLock);
     bool retVal = exiting;
     pthread_mutex_unlock(&exitLock);
+    return retVal;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::SetDisconnect
+ *
+ *******************************************************************/
+void ChatClient::SetDisconnect(bool val)
+{
+    pthread_mutex_lock(&disconnectLock);
+    disconnect = val;
+    pthread_mutex_unlock(&disconnectLock);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CheckDisconnect
+ *
+ *******************************************************************/
+bool ChatClient::CheckDisconnect()
+{
+    pthread_mutex_lock(&disconnectLock);
+    bool retVal = disconnect;
+    pthread_mutex_unlock(&disconnectLock);
     return retVal;
 }
 
@@ -109,7 +136,7 @@ void ChatClient::StartClient()
 {
     int currentState = SERVER_INFO;
 
-    while(currentState != COMPLETE)
+    while(currentState != CLIENT_EXIT)
         currentState = (this->*setupStateFunction[currentState])();
 }
 
@@ -125,6 +152,8 @@ int ChatClient::GetServerInfo()
 
     cout << "Server Port: ";
     getline(cin, serverPortStr);
+    if(serverPortStr.compare(EXIT_CMD) == 0)
+        return CLIENT_EXIT;
     serverPort = atoi(serverPortStr.c_str());
     if( serverPort < 1024 || serverPort > 65535)
         validPort = false;
@@ -291,11 +320,6 @@ int ChatClient::GetOtherUsers()
         start = index+1;
     }while(index != string::npos);
 
-    cout << "Other Users: ";
-    for(vector<string>::iterator currentUser = otherUsers.begin(); currentUser != otherUsers.end(); currentUser++)
-        cout << *currentUser << " ";
-    cout << endl;
-
     return START_THREADS;
 }
 
@@ -308,8 +332,38 @@ int ChatClient::SetupComplete()
 {
     SendThread = thread(&ChatClient::ClientSend, this);
     RecvThread = thread(&ChatClient::ClientRecv, this);
+    return COMPLETE;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::WaitForExit
+ *
+ *******************************************************************/
+int ChatClient::WaitForExit()
+{
     SendThread.join();
-    //RecvThread.join();
+    RecvThread.join();
+    if(CheckShutdown())
+    {
+        cout << "Server shutdown; please reconnect" << endl;
+        return SERVER_INFO;
+    }
+    else if(CheckDisconnect())
+    {
+        cout << "Client Disconnecting" << endl;
+        return SERVER_INFO;
+    }
+    else if(CheckExit())
+    {
+        cout << "Client Exiting" << endl;
+        return CLIENT_EXIT;
+    }
+    else
+    {
+        cout << "Error occured; exiting" << endl;
+        return CLIENT_EXIT;
+    }
     return COMPLETE;
 }
 
@@ -324,8 +378,70 @@ void ChatClient::ClientSend()
 
     int currentState = GET_INPUT;
 
-    while(!CheckExit())
+    while(currentState != END_THREAD)
         currentState = (this->*sendStateFunction[currentState])(input, output);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetInput
+ *
+ *******************************************************************/
+int ChatClient::GetInput(string& input, string& output)
+{
+    getline(cin, input);
+    if(CheckShutdown())
+        return END_THREAD;
+    return PARSE_INPUT;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::ParseInput
+ *
+ *******************************************************************/
+int ChatClient::ParseInput(string& input, string& output)
+{
+    int firstSpace;
+    string cmd;
+
+    firstSpace = input.find_first_of(' ');
+    if(firstSpace == string::npos)
+    {
+        if(input.compare(EXIT_CMD))
+        else if(input.compare(DISCONNECT_CMD))
+        else
+    }
+
+    cmd = input.substr(0, firstSpace);
+    if(cmd.compare(SEND_CMD))
+    else if(cmd.compare(SEND_FILE_CMD))
+    else if(cmd.compare(BRDCST_CMD))
+    else if(cmd.compare(BRDCST_FILE_CMD))
+    else if(cmd.compare(BLKCST_CMD))
+    else if(cmd.compare(BLKCST_FILE_CMD))
+
+    return SEND_INPUT;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::SendMsg
+ *
+ *******************************************************************/
+int ChatClient::SendMsg(string& input, string& output)
+{
+    return GET_INPUT;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::ErrorInput
+ *
+ *******************************************************************/
+int ChatClient::ErrorInput(string& input, string& output)
+{
+    return GET_INPUT;
 }
 
 /*******************************************************************
@@ -335,20 +451,21 @@ void ChatClient::ClientSend()
  *******************************************************************/
 void ChatClient::ClientRecv()
 {
-    string msg, recvMsg, output;
+    string recvMsg, output;
     int currentState;
 
     while(1)
     {
+        if(CheckDisconnect() || CheckExit() || CheckShutdown())
+            break;
+
         currentState = GET_TYPE;
 
-        msg = ReceiveFromServer();
-        cout << msg.substr(1,msg.length() - 1) << "disconnected" << endl;
+        recvMsg = ReceiveFromServer();
 
         while(currentState != PARSE_COMPLETE)
             currentState = (this->*recvStateFunction[currentState])(recvMsg, output);
     }
-    SetExit(true);
 }
 
 /*******************************************************************
@@ -375,4 +492,74 @@ string ChatClient::ReceiveFromServer()
     } while(msg[numBytes-1] != MSG_END);
 
     return currentMsg;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetMsgType
+ *
+ *******************************************************************/
+int ChatClient::GetMsgType(string msg, string& display)
+{display = msg; display += ":1"; cout << display << endl; return 1;}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetSource
+ *
+ *******************************************************************/
+int ChatClient::GetSource(string msg, string& display)
+{display += ":2"; cout << display << endl; return 2;}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetMsg
+ *
+ *******************************************************************/
+int ChatClient::GetMsg(string msg, string& display)
+{display += ":3"; cout << display << endl; return 3;}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetFilename
+ *
+ *******************************************************************/
+int ChatClient::GetFilename(string msg, string& display)
+{display += ":4"; cout << display << endl; return 4;}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetFile
+ *
+ *******************************************************************/
+int ChatClient::GetFile(string msg, string& display)
+{display += ":5"; cout << display << endl; return 5;}
+
+/*******************************************************************
+ *
+ *      ChatClient::Reply
+ *
+ *******************************************************************/
+int ChatClient::Reply(string msg, string& display)
+{display += ":6"; cout << display << endl; return 6;}
+
+/*******************************************************************
+ *
+ *      ChatClient::DisplayRecvMsg
+ *
+ *******************************************************************/
+int ChatClient::DisplayRecvMsg(string msg, string& display)
+{display += ":7"; cout << display << endl; return 7;}
+
+
+
+/*******************************************************************
+ *
+ *      ChatClient::DisplayMsg
+ *
+ *******************************************************************/
+void ChatServer::DisplayMsg(string msg)
+{
+    pthread_mutex_lock(&displayLock);
+    cout << msg << endl;
+    pthread_mutex_unlock(&displayLock);
 }
