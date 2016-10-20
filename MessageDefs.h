@@ -27,6 +27,7 @@
 #define FILE_RCV            14      // Server, file sent to a user
 #define SERVER_SHUTDOWN     15      // Server, server broadcast indicating it is shutting down
 #define CLIENT_SHUTDOWN     16      // Client, client message to server that it is disconnecting
+
 #define SERVER_HEARTBEAT    17      // Server, request to client to verify it is still alive
 #define CLIENT_HEARTBEAT    18      // Client, response to server heartbeat
 

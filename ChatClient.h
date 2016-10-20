@@ -45,13 +45,12 @@ public:
 
     void ClientRecv();
     string ReceiveFromServer();
-    int GetMsgType      (string msg, string& display)
-    int GetSource       (string msg, string& display)
-    int GetMsg          (string msg, string& display)
-    int GetFilename     (string msg, string& display)
-    int GetFile         (string msg, string& display)
-    int Reply           (string msg, string& display)
-    int DisplayRecvMsg  (string msg, string& display)
+    int GetMsgType      (string msg, string& display);
+    int GetSource       (string msg, string& display);
+    int GetMsg          (string msg, string& display);
+    int GetFilename     (string msg, string& display);
+    int GetFile         (string msg, string& display);
+    int DisplayRecvMsg  (string msg, string& display);
 
     void SetExit(bool val);
     bool CheckExit();
@@ -59,6 +58,11 @@ public:
     bool CheckDisconnect();
     void SetShutdown(bool val);
     bool CheckShutdown();
+    void SetPromptDisplayed(bool val);
+    bool CheckPromptDisplayed();
+
+    void DisplayMsg(string msg);
+    void DisplayPrompt();
 
 private:
     typedef enum
@@ -77,7 +81,6 @@ private:
         GET_INPUT,
         PARSE_INPUT,
         SEND_INPUT,
-        ERROR_INPUT,
         END_THREAD
     } SendCodes;
 
@@ -88,7 +91,6 @@ private:
         GET_MSG,
         GET_FILENAME,
         GET_FILE,
-        REPLY,
         DISPLAY,
         PARSE_COMPLETE
     } RecvCodes;
@@ -100,25 +102,26 @@ private:
                                                     &ChatClient::SetupComplete,
                                                     &ChatClient::WaitForExit };
 
-    int (ChatClient::*sendStateFunction[4])(string& input, string& output) = {  &ChatClient::GetInput,
+    int (ChatClient::*sendStateFunction[3])(string& input, string& output) = {  &ChatClient::GetInput,
                                                                                 &ChatClient::ParseInput,
-                                                                                &ChatClient::SendMsg,
-                                                                                &ChatClient::ErrorInput };
+                                                                                &ChatClient::SendMsg };
 
-    int (ChatClient::*recvStateFunction[7])(string msg, string& display) = {    &ChatClient::GetMsgType,
+    int (ChatClient::*recvStateFunction[6])(string msg, string& display) = {    &ChatClient::GetMsgType,
                                                                                 &ChatClient::GetSource,
                                                                                 &ChatClient::GetMsg,
                                                                                 &ChatClient::GetFilename,
                                                                                 &ChatClient::GetFile,
-                                                                                &ChatClient::Reply,
                                                                                 &ChatClient::DisplayMsg };
     string serverPortStr;
     int serverPort;
+    bool promptDisplayed;
     string username;
+    string recvMsgSource;
+    int recvMsgType;
     vector<string> otherUsers;
 
     bool exiting, serverExit, disconnect;
-    pthread_mutex_t exitLock, shutdownLock, disconnectLock, displayLock;
+    pthread_mutex_t exitLock, shutdownLock, disconnectLock, displayLock, promptCheckLock;
 
     thread SendThread;
     thread RecvThread;
