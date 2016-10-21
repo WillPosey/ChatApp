@@ -18,6 +18,9 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <sys/time.h>
+#include <errno.h>
 
 #define BUFFER_LENGTH           100
 
@@ -44,7 +47,7 @@ public:
     int ErrorInput  (string& input, string& output);
 
     void ClientRecv();
-    string ReceiveFromServer();
+    bool ReceiveFromServer(string& recvMsg);
     int GetMsgType      (string msg, string& display);
     int GetSource       (string msg, string& display);
     int GetMsg          (string msg, string& display);
@@ -61,7 +64,7 @@ public:
     void SetPromptDisplayed(bool val);
     bool CheckPromptDisplayed();
 
-    void DisplayMsg(string msg);
+    void DisplayMsg(string msg, bool newline = true);
     void DisplayPrompt();
 
 private:
@@ -111,13 +114,19 @@ private:
                                                                                 &ChatClient::GetMsg,
                                                                                 &ChatClient::GetFilename,
                                                                                 &ChatClient::GetFile,
-                                                                                &ChatClient::DisplayMsg };
+                                                                                &ChatClient::DisplayRecvMsg };
     string serverPortStr;
     int serverPort;
+
     bool promptDisplayed;
+
     string username;
+
     string recvMsgSource;
-    int recvMsgType;
+    char recvMsgType;
+    int srcEnd, filenameEnd;
+    string filename;
+
     vector<string> otherUsers;
 
     bool exiting, serverExit, disconnect;

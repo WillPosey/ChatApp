@@ -222,7 +222,7 @@ void ChatServer::ClientThread(int clientSocket, string username)
     string recvMsg, sendMsg, source, destination, display, filename, data;
     char recvTag, sendTag;
 
-    source = "[" + username + "]->";
+    source = "[" + username + "] -> ";
 
     while(1)
     {
@@ -235,7 +235,7 @@ void ChatServer::ClientThread(int clientSocket, string username)
                 destination = GetMsgDestination(recvMsg);
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "[" + destination + "]:" + data);
+                DisplayMsg(source + "[" + destination + "]: " + data);
                 SendToClient(destination, sendMsg);
                 break;
             case SEND_FILE:
@@ -243,21 +243,21 @@ void ChatServer::ClientThread(int clientSocket, string username)
                 destination = GetMsgDestination(recvMsg);
                 filename = GetMsgFilename(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "[" + destination + "]:" + filename);
+                DisplayMsg(source + "[" + destination + "]: " + filename);
                 SendToClient(destination, sendMsg);
                 break;
             case BRDCST_MSG:
                 sendTag = MSG_RCV;
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = recvMsg.replace(0,1,1,sendTag);
-                DisplayMsg(source + "<BROADCAST>:" + data);
+                DisplayMsg(source + "<BROADCAST>: " + data);
                 Broadcast(sendMsg);
                 break;
             case BRDCST_FILE:
                 sendTag = FILE_RCV;
                 filename = GetMsgFilename(recvMsg, recvTag);
                 sendMsg = recvMsg.replace(0,1,1,sendTag);
-                DisplayMsg(source + "<BROADCAST>:" + filename);
+                DisplayMsg(source + "<BROADCAST>: " + filename);
                 Broadcast(sendMsg);
                 break;
             case BLKCST_MSG:
@@ -265,7 +265,7 @@ void ChatServer::ClientThread(int clientSocket, string username)
                 destination = GetBlockedDestination(recvMsg);
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "<BLOCKCAST>[" + destination + "]:" + data);
+                DisplayMsg(source + "<BLOCKCAST>[" + destination + "]: " + data);
                 Blockcast(destination, sendMsg);
                 break;
             case BLKCST_FILE:
