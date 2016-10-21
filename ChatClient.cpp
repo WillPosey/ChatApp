@@ -440,7 +440,7 @@ int ChatClient::GetInput(string& input, string& output)
  *******************************************************************/
 int ChatClient::ParseInput(string& input, string& output)
 {
-    int firstSpace, secondSpace, retVal;
+    int firstSpace, secondSpace;
     string cmd, destination, msg, filename;
     char tag;
 
@@ -449,28 +449,26 @@ int ChatClient::ParseInput(string& input, string& output)
     if(firstSpace == string::npos)
     {
         // exit
-        if(input.compare(EXIT_CMD))
+        if(input.compare(EXIT_CMD) == 0)
         {
             tag = CLIENT_SHUTDOWN;
             SetExit(true);
             DisplayMsg("Shutting Down...");
             output += tag;
-            retVal = END_THREAD;
         }
         // disconnect
-        else if(input.compare(DISCONNECT_CMD))
+        else if(input.compare(DISCONNECT_CMD) == 0)
         {
             tag = CLIENT_SHUTDOWN;
             SetDisconnect(true);
             DisplayMsg("Disconnecting From Server...");
             output += tag;
-            retVal = END_THREAD;
         }
         // error
         else
         {
             DisplayMsg("Error: Incorrect Input");
-            retVal = GET_INPUT;
+            return GET_INPUT;
         }
     }
     else
@@ -478,66 +476,58 @@ int ChatClient::ParseInput(string& input, string& output)
         cmd = input.substr(0, firstSpace);
         secondSpace = input.find_first_of(' ', firstSpace+1);
 
-        // this is a broadcast; no destination specified
-        if(secondSpace == string::npos)
-            msg = filename = input.substr(firstSpace+1, input.length()-1);
-        // this is either an individual send or blockcast
-        else
-        {
-            destination = input.substr(firstSpace+1, secondSpace);
-            msg = input.substr(secondSpace+1, input.length()-1);
-            filename = msg;
-        }
-
         // send msg
-        if(cmd.compare(SEND_CMD))
+        if(cmd.compare(SEND_CMD) == 0)
         {
             tag = SEND_MSG;
+            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
+            msg = input.substr(secondSpace+1, input.length()-secondSpace-1);
             output += tag + username + MSG_SRC_END + destination + MSG_DST_END + msg;
-            retVal = SEND_INPUT;
         }
         // send file
-        else if(cmd.compare(SEND_FILE_CMD))
+        else if(cmd.compare(SEND_FILE_CMD) == 0)
         {
             tag = SEND_FILE;
+            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
+            filename = input.substr(secondSpace+1, input.length()-secondSpace-1);
             output += tag + username + MSG_SRC_END + destination + MSG_DST_END + filename + FILENAME_END;
             //get file
-            output += SEND_FILE;
-            retVal = SEND_INPUT;
         }
         // broadcast msg
-        else if(cmd.compare(BRDCST_CMD))
+        else if(cmd.compare(BRDCST_CMD) == 0)
         {
             tag = BRDCST_MSG;
+            msg = input.substr(firstSpace+1, input.length()-firstSpace-1);
             output += tag + msg;
-            retVal = SEND_INPUT;
         }
         // broadcast file
-        else if(cmd.compare(BRDCST_FILE_CMD))
+        else if(cmd.compare(BRDCST_FILE_CMD) == 0)
         {
             tag = BRDCST_FILE;
+            filename = input.substr(firstSpace+1, input.length()-firstSpace-1);
             output += tag + username + MSG_SRC_END + filename + FILENAME_END;
             //get file
-            retVal = SEND_INPUT;
         }
         // blockcast msg
-        else if(cmd.compare(BLKCST_CMD))
+        else if(cmd.compare(BLKCST_CMD) == 0)
         {
             tag = BLKCST_MSG;
+            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
+            msg = input.substr(secondSpace+1, input.length()-secondSpace-1);
             output += tag + username + MSG_SRC_END + destination + MSG_DST_END + msg;
-            retVal = SEND_INPUT;
         }
         // blockcast file
-        else if(cmd.compare(BLKCST_FILE_CMD))
+        else if(cmd.compare(BLKCST_FILE_CMD) == 0)
         {
             tag = BLKCST_FILE;
+            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
+            filename = input.substr(secondSpace+1, input.length()-secondSpace-1);
             output += tag + username + MSG_SRC_END + destination + MSG_DST_END + filename + FILENAME_END;
             //get file
-            retVal = SEND_INPUT;
         }
     }
     output += MSG_END;
-    return retVal;
+    return SEND_INPUT;
 }
 
 /*******************************************************************
@@ -549,6 +539,8 @@ int ChatClient::SendMsg(string& input, string& output)
 {
     if(send(socket_fd, output.c_str(), output.length(), 0) < 0)
         DisplayMsg("ERROR: could not send message to server");
+    if(CheckDisconnect() || CheckExit() || CheckShutdown())
+        return END_THREAD;
     return GET_INPUT;
 }
 
@@ -649,12 +641,12 @@ int ChatClient::GetSource(string msg, string& display)
 {
     if(recvMsgType == USER_DISCONNECT)
     {
-        display += "[" + msg.substr(1,msg.length()-2) + "] -> DISCONNECTED";
+        display += "[" + msg.substr(1,msg.length()-2) + "]->DISCONNECTED";
         return DISPLAY;
     }
     if(recvMsgType == USER_CONNECT)
     {
-        display += "[" + msg.substr(1,msg.length()-2) + "] -> CONNECTED";
+        display += "[" + msg.substr(1,msg.length()-2) + "]->CONNECTED";
         return DISPLAY;
     }
     if(recvMsgType == SERVER_SHUTDOWN)
@@ -665,7 +657,7 @@ int ChatClient::GetSource(string msg, string& display)
     }
 
     srcEnd = msg.find(MSG_SRC_END);
-    display += "[" + msg.substr(1,srcEnd-1) + "] -> ";
+    display += "[" + msg.substr(1,srcEnd-1) + "]->";
 
     if(recvMsgType == MSG_RCV)
         return GET_MSG;
