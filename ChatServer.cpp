@@ -31,6 +31,8 @@ ChatServer::ChatServer(char* port)
 {
     serverPort = string(port);
     setupSuccess = false;
+    signalDetected = 0;
+    signal(SIGINT, signalHandler);
     listenSocket = -1;
     pthread_mutex_init(&updateLock, NULL);
     pthread_mutex_init(&displayLock, NULL);
@@ -105,17 +107,39 @@ void ChatServer::ListenForConnections()
     cout << "Chat Server Listening for Connections on Port <" << serverPort << ">" << endl;
 
     int connectSocket;
+    struct timeval timeout;
+    fd_set fdSet;
 
     while(1)
     {
-        connectSocket = accept(listenSocket, NULL, NULL);
-        if(connectSocket < 0)
+        FD_ZERO (&fdSet);
+        FD_SET (listenSocket, &fdSet);
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        select(listenSocket+1, &fdSet, NULL, NULL, &timeout);
+        if(signalDetected)
         {
-            DisplayMsg("ERROR: An incoming connection attempt failed");
-            continue;
+            close(listenSocket);
+            DisplayMsg("\nServer Shutting Down, Notifying Clients...");
+            char tag = SERVER_SHUTDOWN, endMsg = MSG_END;
+            string msg = "";
+            msg += tag + endMsg;
+            Broadcast(msg);
+            CloseAllSockets();
+            break;
         }
-        initThread = new thread(&ChatServer::CreateThread, this, connectSocket);
-        initThread->detach();
+        if(FD_ISSET (listenSocket, &fdSet))
+        {
+            connectSocket = accept(listenSocket, NULL, NULL);
+            if(connectSocket < 0)
+            {
+                DisplayMsg("ERROR: An incoming connection attempt failed");
+                continue;
+            }
+            initThread = new thread(&ChatServer::CreateThread, this, connectSocket);
+            initThread->detach();
+        }
     }
 }
 
@@ -233,6 +257,8 @@ void ChatServer::ClientThread(int clientSocket, string username)
             case SEND_MSG:
                 sendTag = MSG_RCV;
                 destination = GetMsgDestination(recvMsg);
+                if(destination.compare(username) == 0)
+                    break;
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
                 DisplayMsg(source + "[" + destination + "]: " + data);
@@ -241,6 +267,8 @@ void ChatServer::ClientThread(int clientSocket, string username)
             case SEND_FILE:
                 sendTag = FILE_RCV;
                 destination = GetMsgDestination(recvMsg);
+                if(destination.compare(username) == 0)
+                    break;
                 filename = GetMsgFilename(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
                 DisplayMsg(source + "[" + destination + "]: " + filename);
@@ -251,14 +279,14 @@ void ChatServer::ClientThread(int clientSocket, string username)
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = recvMsg.replace(0,1,1,sendTag);
                 DisplayMsg(source + " <BROADCAST>: " + data);
-                Broadcast(sendMsg);
+                Blockcast(username, sendMsg);
                 break;
             case BRDCST_FILE:
                 sendTag = FILE_RCV;
                 filename = GetMsgFilename(recvMsg, recvTag);
                 sendMsg = recvMsg.replace(0,1,1,sendTag);
                 DisplayMsg(source + " <BROADCAST>: " + filename);
-                Broadcast(sendMsg);
+                Blockcast(username, sendMsg);
                 break;
             case BLKCST_MSG:
                 sendTag = MSG_RCV;
@@ -509,7 +537,7 @@ string ChatServer::GetBlockedDestination(string msg)
  *******************************************************************/
 string ChatServer::RemoveMsgDestination(string msg)
 {
-    int start = msg.find(MSG_SRC_END)+1;
+    int start = msg.find(MSG_SRC_END)+2;
     int finish = msg.find(MSG_DST_END);
     return msg.erase(start, finish-start);
 }
@@ -560,5 +588,18 @@ string ChatServer::GetMsgData(string msg, char tag)
     }
     finish = msg.find(MSG_END);
     return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::CloseAllSockets
+ *
+ *******************************************************************/
+void ChatServer::CloseAllSockets()
+{
+    vector<string>::iterator it;
+
+    for(it = usernames.begin(); it != usernames.end(); it++)
+        close(clientSockets[*it]);
 }
 

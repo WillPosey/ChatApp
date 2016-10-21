@@ -38,6 +38,8 @@ ChatClient::ChatClient()
     pthread_mutex_init(&disconnectLock, NULL);
     pthread_mutex_init(&displayLock, NULL);
     pthread_mutex_init(&promptCheckLock, NULL);
+    signalDetected = 0;
+    signal(SIGINT, signalHandler);
 }
 
 /*******************************************************************
@@ -307,7 +309,8 @@ int ChatClient::GetUsername()
                 return SERVER_INFO;
         }
     }
-
+    prompt = "[" + username + "]>> ";
+    flush(cout);
     return GET_USERS;
 }
 
@@ -424,13 +427,47 @@ void ChatClient::ClientSend()
  *******************************************************************/
 int ChatClient::GetInput(string& input, string& output)
 {
+    fd_set fdSet;
+    struct timeval timeout;
+    char inputChar = 0;
+
     output = "";
+    currentInput = prompt;
     DisplayPrompt();
-    getline(cin, input);
+
+    while(1)
+    {
+        FD_ZERO (&fdSet);
+        FD_SET (STDIN_FILENO, &fdSet);
+
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 500000;
+        select(STDIN_FILENO+1, &fdSet, NULL, NULL, &timeout);
+        if(signalDetected)
+        {
+            input = "exit";
+            break;
+        }
+        if(CheckShutdown())
+            break;
+        if(FD_ISSET(STDIN_FILENO, &fdSet))
+        {
+            read(STDIN_FILENO, &inputChar, 1);
+            if(inputChar == '\n')
+                break;
+            input += inputChar;
+            pthread_mutex_lock(&promptCheckLock);
+            currentInput += inputChar;
+            pthread_mutex_unlock(&promptCheckLock);
+        }
+    }
+
     SetPromptDisplayed(false);
     if(CheckShutdown())
         return END_THREAD;
-    return PARSE_INPUT;
+    if(input.length() > 1)
+        return PARSE_INPUT;
+    return GET_INPUT;
 }
 
 /*******************************************************************
@@ -553,25 +590,23 @@ void ChatClient::ClientRecv()
 {
     string recvMsg, output;
     int currentState;
-    bool loopRecv = true;
+    bool disconnection = false;
 
-    while(loopRecv)
+    while(1)
     {
-        if(CheckDisconnect() || CheckExit() || CheckShutdown())
-            break;
-
         currentState = GET_TYPE;
 
+        recvMsg = "";
         while(!ReceiveFromServer(recvMsg))
         {
             if(CheckDisconnect() || CheckExit() || CheckShutdown())
             {
-                loopRecv = false;
+                disconnection = true;
                 break;
             }
         }
-        if(!loopRecv)
-            continue;
+        if(disconnection)
+            break;
 
         output = "";
 
@@ -610,9 +645,7 @@ bool ChatClient::ReceiveFromServer(string& recvMsg)
             }
             //timeout
             else
-            {
                 return false;
-            }
         }
         currentMsg += string(msg);
     } while(msg[numBytes-1] != MSG_END);
@@ -722,12 +755,22 @@ void ChatClient::DisplayMsg(string msg, bool newline)
 {
     pthread_mutex_lock(&displayLock);
     bool insertLineAbove = CheckPromptDisplayed();
-    //if(insertLineAbove)
-        //insert line above the displayed prompt used in getline?
-    //else
+    if(insertLineAbove)
+    {
+        printf("\033[s\r");
         cout << msg << endl;
-    if(newline)
-        cout << endl;
+        pthread_mutex_lock(&promptCheckLock);
+        cout << currentInput;
+        pthread_mutex_unlock(&promptCheckLock);
+        printf("\033[u\033[1B");
+    }
+    else
+    {
+        cout << msg;
+        if(newline)
+            cout << endl;
+    }
+    flush(cout);
     pthread_mutex_unlock(&displayLock);
 }
 
@@ -738,6 +781,6 @@ void ChatClient::DisplayMsg(string msg, bool newline)
  *******************************************************************/
 void ChatClient::DisplayPrompt()
 {
+    DisplayMsg(prompt, false);
     SetPromptDisplayed(true);
-    DisplayMsg("[" + username + "]: ", false);
 }

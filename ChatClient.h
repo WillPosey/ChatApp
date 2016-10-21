@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <signal.h>
 
 #define BUFFER_LENGTH           100
 
@@ -33,6 +34,8 @@ public:
     ~ChatClient();
 
     void StartClient();
+
+private:
     int GetServerInfo();
     int ConnectToServer();
     int GetUsername();
@@ -67,7 +70,6 @@ public:
     void DisplayMsg(string msg, bool newline = true);
     void DisplayPrompt();
 
-private:
     typedef enum
     {
         SERVER_INFO,
@@ -121,6 +123,8 @@ private:
     bool promptDisplayed;
 
     string username;
+    string prompt;
+    string currentInput;
 
     string recvMsgSource;
     char recvMsgType;
@@ -139,5 +143,16 @@ private:
     sockaddr_in serverAddr;
 
 };
+
+volatile sig_atomic_t signalDetected;
+
+void signalHandler(int sigNum)
+{
+    if(sigNum == SIGINT)
+    {
+        signalDetected = 1;
+        cout << endl;
+    }
+}
 
 #endif //CHAT_CLIENT_H

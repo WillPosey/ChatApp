@@ -17,6 +17,9 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <signal.h>
 
 #define MAX_LISTEN_QUEUE        10
 #define MAX_TRIES               10
@@ -31,9 +34,13 @@ public:
     ~ChatServer();
 
     void StartServer();
+    int GetSockets(int* sockets);
+
+private:
     void ListenForConnections();
     void CreateThread(int newSocket);
     bool InitializeConnection(int newSocket, string& newUsername);
+    void CloseAllSockets();
 
     void ClientThread(int clientSocket, string username);
     string ReceiveFromClient(int clientSocket, string username);
@@ -58,7 +65,6 @@ public:
 
     void DisplayMsg(string msg);
 
-private:
     int listenSocket;
     bool setupSuccess;
     string serverPort;
@@ -68,6 +74,15 @@ private:
     vector<string> usernames;
     map<string, int> clientSockets;
 };
+
+
+volatile sig_atomic_t signalDetected;
+
+void signalHandler(int sigNum)
+{
+    signalDetected = (sigNum == SIGINT) ? 1 : 0;
+}
+
 
 #endif //CHAT_SERVER_H
 
