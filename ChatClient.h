@@ -30,7 +30,7 @@ using namespace std;
 class ChatClient
 {
 public:
-    ChatClient();
+    ChatClient(char* port);
     ~ChatClient();
 
     void StartClient();

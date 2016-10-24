@@ -18,10 +18,15 @@ using namespace std;
  *      Main Method
  *
  *******************************************************************/
-int main()
+int main(int argc, char** argv)
 {
-    ChatClient client;
-    client.StartClient();
+    if(argc == 2)
+    {
+        ChatClient client (argv[1]);
+        client.StartClient();
+    }
+    else
+        cout << "Please specify server port" << endl;
     return 0;
 }
 
@@ -30,8 +35,10 @@ int main()
  *      ChatClient Constructor
  *
  *******************************************************************/
-ChatClient::ChatClient()
+ChatClient::ChatClient(char* port)
 {
+    serverPortStr = string(port);
+    serverPort = atoi(port);
     exiting = serverExit = disconnect = promptDisplayed = false;
     pthread_mutex_init(&exitLock, NULL);
     pthread_mutex_init(&shutdownLock, NULL);
@@ -113,9 +120,9 @@ bool ChatClient::CheckDisconnect()
  *******************************************************************/
 void ChatClient::SetShutdown(bool val)
 {
-    pthread_mutex_lock(&exitLock);
+    pthread_mutex_lock(&shutdownLock);
     serverExit = val;
-    pthread_mutex_unlock(&exitLock);
+    pthread_mutex_unlock(&shutdownLock);
 }
 
 /*******************************************************************
@@ -125,9 +132,9 @@ void ChatClient::SetShutdown(bool val)
  *******************************************************************/
 bool ChatClient::CheckShutdown()
 {
-    pthread_mutex_lock(&exitLock);
+    pthread_mutex_lock(&shutdownLock);
     bool retVal = serverExit;
-    pthread_mutex_unlock(&exitLock);
+    pthread_mutex_unlock(&shutdownLock);
     return retVal;
 }
 
@@ -163,7 +170,7 @@ bool ChatClient::CheckPromptDisplayed()
  *******************************************************************/
 void ChatClient::StartClient()
 {
-    int currentState = SERVER_INFO;
+    int currentState = CONNECT;
 
     while(currentState != CLIENT_EXIT)
         currentState = (this->*setupStateFunction[currentState])();
@@ -416,6 +423,12 @@ void ChatClient::ClientSend()
 
     int currentState = GET_INPUT;
 
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000;
+
+    setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
+
     while(currentState != END_THREAD)
         currentState = (this->*sendStateFunction[currentState])(input, output);
 }
@@ -431,6 +444,7 @@ int ChatClient::GetInput(string& input, string& output)
     struct timeval timeout;
     char inputChar = 0;
 
+    input = "";
     output = "";
     currentInput = prompt;
     DisplayPrompt();
@@ -574,6 +588,12 @@ int ChatClient::ParseInput(string& input, string& output)
  *******************************************************************/
 int ChatClient::SendMsg(string& input, string& output)
 {
+    struct timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000;
+
+    setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(struct timeval));
+
     if(send(socket_fd, output.c_str(), output.length(), 0) < 0)
         DisplayMsg("ERROR: could not send message to server");
     if(CheckDisconnect() || CheckExit() || CheckShutdown())
@@ -622,7 +642,7 @@ void ChatClient::ClientRecv()
  *******************************************************************/
 bool ChatClient::ReceiveFromServer(string& recvMsg)
 {
-    string currentMsg;
+    string currentMsg = "";
     char msg[BUFFER_LENGTH];
     int numBytes;
 
@@ -631,6 +651,8 @@ bool ChatClient::ReceiveFromServer(string& recvMsg)
     timeout.tv_usec = 0;
 
     setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    int x;
 
     do
     {
@@ -647,8 +669,12 @@ bool ChatClient::ReceiveFromServer(string& recvMsg)
             else
                 return false;
         }
+        x = msg[0];
+        if(x == SERVER_SHUTDOWN)
+            cout << "TAG: " << x << endl;
         currentMsg += string(msg);
     } while(msg[numBytes-1] != MSG_END);
+    cout << "RECV!" << endl;
 
     recvMsg = currentMsg;
     return true;
@@ -672,9 +698,11 @@ int ChatClient::GetMsgType(string msg, string& display)
  *******************************************************************/
 int ChatClient::GetSource(string msg, string& display)
 {
+    int type = (int)recvMsgType;
+    cout << "TYPE: " << type << endl;
     if(recvMsgType == USER_DISCONNECT)
     {
-        display += "[" + msg.substr(1,msg.length()-2) + "]->DISCONNECTED";
+        display += "[@" + msg.substr(1,msg.length()-2) + "]->DISCONNECTED";
         return DISPLAY;
     }
     if(recvMsgType == USER_CONNECT)
@@ -755,7 +783,7 @@ void ChatClient::DisplayMsg(string msg, bool newline)
 {
     pthread_mutex_lock(&displayLock);
     bool insertLineAbove = CheckPromptDisplayed();
-    if(insertLineAbove)
+    /*if(insertLineAbove)
     {
         printf("\033[s\r");
         cout << msg << endl;
@@ -765,11 +793,11 @@ void ChatClient::DisplayMsg(string msg, bool newline)
         printf("\033[u\033[1B");
     }
     else
-    {
+    {*/
         cout << msg;
         if(newline)
             cout << endl;
-    }
+    //}
     flush(cout);
     pthread_mutex_unlock(&displayLock);
 }

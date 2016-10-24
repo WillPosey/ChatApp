@@ -46,8 +46,8 @@ private:
     string ReceiveFromClient(int clientSocket, string username);
 
     void SendToClient(string username, string msg);
-    void Broadcast(string msg);
-    void Blockcast(string username, string msg);
+    void Broadcast(string sender, string msg);
+    void Blockcast(string sender, string username, string msg);
     void NewConnection(string username);
     void Disconnection(string username);
 

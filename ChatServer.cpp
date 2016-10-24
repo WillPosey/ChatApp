@@ -17,8 +17,13 @@
  *******************************************************************/
 int main(int argc, char** argv)
 {
-    ChatServer server (argv[1]);
-    server.StartServer();
+    if(argc == 2)
+    {
+        ChatServer server (argv[1]);
+        server.StartServer();
+    }
+    else
+        cout << "Please specify server port" << endl;
     return 0;
 }
 
@@ -125,7 +130,7 @@ void ChatServer::ListenForConnections()
             char tag = SERVER_SHUTDOWN, endMsg = MSG_END;
             string msg = "";
             msg += tag + endMsg;
-            Broadcast(msg);
+            Broadcast("", msg);
             CloseAllSockets();
             break;
         }
@@ -278,31 +283,31 @@ void ChatServer::ClientThread(int clientSocket, string username)
                 sendTag = MSG_RCV;
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = recvMsg.replace(0,1,1,sendTag);
-                DisplayMsg(source + " <BROADCAST>: " + data);
-                Blockcast(username, sendMsg);
+                DisplayMsg(source + "[BROADCAST]: " + data);
+                Broadcast(username, sendMsg);
                 break;
             case BRDCST_FILE:
                 sendTag = FILE_RCV;
                 filename = GetMsgFilename(recvMsg, recvTag);
                 sendMsg = recvMsg.replace(0,1,1,sendTag);
-                DisplayMsg(source + " <BROADCAST>: " + filename);
-                Blockcast(username, sendMsg);
+                DisplayMsg(source + "[BROADCAST]: " + filename);
+                Broadcast(username, sendMsg);
                 break;
             case BLKCST_MSG:
                 sendTag = MSG_RCV;
                 destination = GetBlockedDestination(recvMsg);
                 data = GetMsgData(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + " <BLOCKCAST>[" + destination + "]: " + data);
-                Blockcast(destination, sendMsg);
+                DisplayMsg(source + "[BLOCKCAST][" + destination + "]: " + data);
+                Blockcast(username, destination, sendMsg);
                 break;
             case BLKCST_FILE:
                 sendTag = FILE_RCV;
                 destination = GetBlockedDestination(recvMsg);
                 filename = GetMsgFilename(recvMsg, recvTag);
                 sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + " <BLOCKCAST>[" + destination + "]: " + filename);
-                Blockcast(destination, sendMsg);
+                DisplayMsg(source + "[BLOCKCAST][" + destination + "]: " + filename);
+                Blockcast(username, destination, sendMsg);
                 break;
             case CLIENT_SHUTDOWN:
                 DisplayMsg(source + "DISCONNECTED");
@@ -311,6 +316,7 @@ void ChatServer::ClientThread(int clientSocket, string username)
             default:
                 break;
         }
+        DisplayMsg("Sending: " + sendMsg);
     }
 }
 
@@ -358,8 +364,9 @@ void ChatServer::SendToClient(string username, string msg)
  *      ChatServer::Broadcast
  *
  *******************************************************************/
-void ChatServer::Broadcast(string msg)
+void ChatServer::Broadcast(string sender, string msg)
 {
+    DisplayMsg("brdcast");
     vector<string>::iterator it;
     vector<string>tempUsernames;
 
@@ -368,7 +375,11 @@ void ChatServer::Broadcast(string msg)
     pthread_mutex_unlock(&updateLock);
 
     for(it = tempUsernames.begin(); it != tempUsernames.end(); it++)
-        SendToClient(*it, msg);
+        if(sender.compare(*it) != 0)
+        {
+            cout << "Sending to: " << *it << endl;
+            SendToClient(*it, msg);
+        }
 }
 
 /*******************************************************************
@@ -376,7 +387,7 @@ void ChatServer::Broadcast(string msg)
  *      ChatServer::Blockcast
  *
  *******************************************************************/
-void ChatServer::Blockcast(string username, string msg)
+void ChatServer::Blockcast(string sender, string username, string msg)
 {
     vector<string>::iterator it;
     vector<string>tempUsernames;
@@ -386,7 +397,7 @@ void ChatServer::Blockcast(string username, string msg)
     pthread_mutex_unlock(&updateLock);
 
     for(it = tempUsernames.begin(); it != tempUsernames.end(); it++)
-        if(username.compare(*it) != 0)
+        if(username.compare(*it) != 0 && sender.compare(*it) != 0)
             SendToClient(*it, msg);
 }
 
@@ -400,7 +411,7 @@ void ChatServer::NewConnection(string username)
     string connectionMsg;
     char tag = USER_CONNECT;
     connectionMsg = tag + username + MSG_END;
-    Blockcast(username, connectionMsg);
+    Broadcast(username, connectionMsg);
 }
 
 /*******************************************************************
@@ -414,7 +425,7 @@ void ChatServer::Disconnection(string username)
     char tag = USER_DISCONNECT;
     disconnectMsg = tag + username + MSG_END;
     RemoveUser(username);
-    Broadcast(disconnectMsg);
+    Broadcast(username, disconnectMsg);
 }
 
 /*******************************************************************

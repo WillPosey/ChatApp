@@ -33,10 +33,11 @@
 
 /* Delimiters */
 #define MSG_END             '\n'
-#define MSG_SRC_END         '\r'
-#define MSG_DST_END         '\t'
-#define FILENAME_END        '\f'
-#define USERNAME_END        '\v'
+#define MSG_SRC_END         '@'
+#define MSG_DST_END         '&'
+#define MSG_DELIM           '"'
+#define FILENAME_END        '#'
+#define USERNAME_END        '!'
 
 /* Local Commands for Clients */
 #define DISCONNECT_CMD      "disconnect"
