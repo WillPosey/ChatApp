@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <fstream>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -30,93 +31,49 @@ using namespace std;
 class ChatClient
 {
 public:
-    ChatClient(char* port);
+    ChatClient(char* clientUsername, char* port);
     ~ChatClient();
 
     void StartClient();
 
 private:
-    int GetServerInfo();
-    int ConnectToServer();
-    int GetUsername();
-    int GetOtherUsers();
-    int SetupComplete();
-    int WaitForExit();
+    bool ConnectToServer();
+    bool GetNextNeighbor(string neighbors, string& name);
+    void AddNeighbor(string name){otherUsers.push_back(name);}
+    void RemoveNeighbor(string name);
+    void WaitForExit();
+    void TerminateThreads(){pthread_cancel(send_t); pthread_cancel(recv_t);}
 
     void ClientSend();
-    int GetInput    (string& input, string& output);
-    int ParseInput  (string& input, string& output);
-    int SendMsg     (string& input, string& output);
-    int ErrorInput  (string& input, string& output);
+    void GetInput    (string& input);
+    bool ParseInput  (string& input, string& output);
+    void SendMsg     (string msg);
 
     void ClientRecv();
-    bool ReceiveFromServer(string& recvMsg);
-    int GetMsgType      (string msg, string& display);
-    int GetSource       (string msg, string& display);
-    int GetMsg          (string msg, string& display);
-    int GetFilename     (string msg, string& display);
-    int GetFile         (string msg, string& display);
-    int DisplayRecvMsg  (string msg, string& display);
+    string ReceiveFromServer();
+    void ParseMessage(string input, string &display);
 
-    void SetExit(bool val);
-    bool CheckExit();
-    void SetDisconnect(bool val);
-    bool CheckDisconnect();
-    void SetShutdown(bool val);
-    bool CheckShutdown();
+    string GetTag(string msg);
+    string GetCmd(string input);
+    string GetDestination(string msg);
+    string GetSource(string msg);
+    string GetFilename(string msg);
+    string GetMsg(string msg);
+    string GetFile(string msg);
+    void CreateFile(string filename, string file);
+    string ReadFile(string filename);
+
+    bool CompareTag(string tag, string checkTag);
+    bool CompareCmd(string cmd, string checkCmd);
+    bool UserExists(string user);
+    bool FileExists(string filename);
+
     void SetPromptDisplayed(bool val);
     bool CheckPromptDisplayed();
 
     void DisplayMsg(string msg, bool newline = true);
     void DisplayPrompt();
 
-    typedef enum
-    {
-        SERVER_INFO,
-        CONNECT,
-        USERNAME,
-        GET_USERS,
-        START_THREADS,
-        COMPLETE,
-        CLIENT_EXIT
-    } SetupCodes;
-
-    typedef enum
-    {
-        GET_INPUT,
-        PARSE_INPUT,
-        SEND_INPUT,
-        END_THREAD
-    } SendCodes;
-
-    typedef enum
-    {
-        GET_TYPE,
-        GET_SRC,
-        GET_MSG,
-        GET_FILENAME,
-        GET_FILE,
-        DISPLAY,
-        PARSE_COMPLETE
-    } RecvCodes;
-
-    int (ChatClient::*setupStateFunction[6])() = {  &ChatClient::GetServerInfo,
-                                                    &ChatClient::ConnectToServer,
-                                                    &ChatClient::GetUsername,
-                                                    &ChatClient::GetOtherUsers,
-                                                    &ChatClient::SetupComplete,
-                                                    &ChatClient::WaitForExit };
-
-    int (ChatClient::*sendStateFunction[3])(string& input, string& output) = {  &ChatClient::GetInput,
-                                                                                &ChatClient::ParseInput,
-                                                                                &ChatClient::SendMsg };
-
-    int (ChatClient::*recvStateFunction[6])(string msg, string& display) = {    &ChatClient::GetMsgType,
-                                                                                &ChatClient::GetSource,
-                                                                                &ChatClient::GetMsg,
-                                                                                &ChatClient::GetFilename,
-                                                                                &ChatClient::GetFile,
-                                                                                &ChatClient::DisplayRecvMsg };
     string serverPortStr;
     int serverPort;
 
@@ -133,11 +90,13 @@ private:
 
     vector<string> otherUsers;
 
-    bool exiting, serverExit, disconnect;
-    pthread_mutex_t exitLock, shutdownLock, disconnectLock, displayLock, promptCheckLock;
+    bool clientExiting, serverShutdown;
+    pthread_mutex_t displayLock, promptCheckLock;
 
     thread SendThread;
+    pthread_t send_t;
     thread RecvThread;
+    pthread_t recv_t;
 
     int socket_fd;
     sockaddr_in serverAddr;

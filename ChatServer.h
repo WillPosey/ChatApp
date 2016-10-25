@@ -34,7 +34,6 @@ public:
     ~ChatServer();
 
     void StartServer();
-    int GetSockets(int* sockets);
 
 private:
     void ListenForConnections();
@@ -42,26 +41,27 @@ private:
     bool InitializeConnection(int newSocket, string& newUsername);
     void CloseAllSockets();
 
-    void ClientThread(int clientSocket, string username);
+    void ClientThread(int clientSocket);
     string ReceiveFromClient(int clientSocket, string username);
 
-    void SendToClient(string username, string msg);
+    void SendToClient(string destUser, string msg);
     void Broadcast(string sender, string msg);
-    void Blockcast(string sender, string username, string msg);
+    void Blockcast(string sender, string blockedUser, string msg);
     void NewConnection(string username);
     void Disconnection(string username);
+    void ServerShutdown();
 
     bool UsernameAvailable(string newUser);
     void AddNewUser(string newUser, int socket_fd);
     void RemoveUser(string username);
     string CreateAllUsersMsg();
 
-    char   GetMsgTag(string msg);
-    string GetMsgDestination(string msg);
-    string GetBlockedDestination(string msg);
-    string GetMsgFilename(string msg, char tag);
-    string GetMsgData(string msg, char tag);
-    string RemoveMsgDestination(string msg);
+    string GetTag(string msg);
+    string GetDestination(string msg);
+    string GetFilename(string msg);
+    string GetMsg(string msg);
+    string GetFile(string msg);
+    bool CompareTag(string tag, string checkTag);
 
     void DisplayMsg(string msg);
 
@@ -73,6 +73,7 @@ private:
 
     vector<string> usernames;
     map<string, int> clientSockets;
+    map<int, pthread_t> clientThreadHandles;
 };
 
 

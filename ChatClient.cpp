@@ -9,7 +9,9 @@
 #include "ChatClient.h"
 #include <cstdlib>
 #include <strings.h>
+#include <sys/stat.h>
 #include <cstring>
+#include <algorithm>
 
 using namespace std;
 
@@ -20,13 +22,13 @@ using namespace std;
  *******************************************************************/
 int main(int argc, char** argv)
 {
-    if(argc == 2)
+    if(argc == 3)
     {
-        ChatClient client (argv[1]);
+        ChatClient client (argv[1], argv[2]);
         client.StartClient();
     }
     else
-        cout << "Please specify server port" << endl;
+        cout << "Please specify username and server port" << endl;
     return 0;
 }
 
@@ -35,14 +37,13 @@ int main(int argc, char** argv)
  *      ChatClient Constructor
  *
  *******************************************************************/
-ChatClient::ChatClient(char* port)
+ChatClient::ChatClient(char* clientUsername, char* port)
 {
+    username = string(clientUsername);
+    prompt = "[" + username + "]: ";
     serverPortStr = string(port);
     serverPort = atoi(port);
-    exiting = serverExit = disconnect = promptDisplayed = false;
-    pthread_mutex_init(&exitLock, NULL);
-    pthread_mutex_init(&shutdownLock, NULL);
-    pthread_mutex_init(&disconnectLock, NULL);
+    clientExiting = serverShutdown = promptDisplayed = false;
     pthread_mutex_init(&displayLock, NULL);
     pthread_mutex_init(&promptCheckLock, NULL);
     signalDetected = 0;
@@ -56,87 +57,10 @@ ChatClient::ChatClient(char* port)
  *******************************************************************/
 ChatClient::~ChatClient()
 {
-    pthread_mutex_destroy(&exitLock);
-    pthread_mutex_destroy(&shutdownLock);
-    pthread_mutex_destroy(&disconnectLock);
     pthread_mutex_destroy(&displayLock);
     pthread_mutex_destroy(&promptCheckLock);
 }
 
-/*******************************************************************
- *
- *      ChatClient::SetExit
- *
- *******************************************************************/
-void ChatClient::SetExit(bool val)
-{
-    pthread_mutex_lock(&exitLock);
-    exiting = val;
-    pthread_mutex_unlock(&exitLock);
-}
-
-/*******************************************************************
- *
- *      ChatClient::CheckExit
- *
- *******************************************************************/
-bool ChatClient::CheckExit()
-{
-    pthread_mutex_lock(&exitLock);
-    bool retVal = exiting;
-    pthread_mutex_unlock(&exitLock);
-    return retVal;
-}
-
-/*******************************************************************
- *
- *      ChatClient::SetDisconnect
- *
- *******************************************************************/
-void ChatClient::SetDisconnect(bool val)
-{
-    pthread_mutex_lock(&disconnectLock);
-    disconnect = val;
-    pthread_mutex_unlock(&disconnectLock);
-}
-
-/*******************************************************************
- *
- *      ChatClient::CheckDisconnect
- *
- *******************************************************************/
-bool ChatClient::CheckDisconnect()
-{
-    pthread_mutex_lock(&disconnectLock);
-    bool retVal = disconnect;
-    pthread_mutex_unlock(&disconnectLock);
-    return retVal;
-}
-
-/*******************************************************************
- *
- *      ChatClient::SetShutdown
- *
- *******************************************************************/
-void ChatClient::SetShutdown(bool val)
-{
-    pthread_mutex_lock(&shutdownLock);
-    serverExit = val;
-    pthread_mutex_unlock(&shutdownLock);
-}
-
-/*******************************************************************
- *
- *      ChatClient::CheckShutdown
- *
- *******************************************************************/
-bool ChatClient::CheckShutdown()
-{
-    pthread_mutex_lock(&shutdownLock);
-    bool retVal = serverExit;
-    pthread_mutex_unlock(&shutdownLock);
-    return retVal;
-}
 
 /*******************************************************************
  *
@@ -162,6 +86,166 @@ bool ChatClient::CheckPromptDisplayed()
     pthread_mutex_unlock(&promptCheckLock);
     return retVal;
 }
+/*******************************************************************
+ *
+ *      ChatClient::GetTag
+ *
+ *******************************************************************/
+string ChatClient::GetTag(string msg)
+{
+    return msg.substr(0,2);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetCmd
+ *
+ *******************************************************************/
+string ChatClient::GetCmd(string input)
+{
+    int finish = input.find(MSG_TAG);
+    if(finish == string::npos)
+        return input;
+    return input.substr(0, finish);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CompareTag
+ *
+ *******************************************************************/
+bool ChatClient::CompareTag(string tag, string checkTag)
+{
+    return (tag.compare(checkTag) == 0);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CompareCmd
+ *
+ *******************************************************************/
+bool ChatClient::CompareCmd(string cmd, string checkCmd)
+{
+    return (cmd.compare(checkCmd) == 0);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::UserExists
+ *
+ *******************************************************************/
+bool ChatClient::UserExists(string user)
+{
+    vector<string>::iterator userIterator;
+
+    for(userIterator = otherUsers.begin(); userIterator != otherUsers.end(); userIterator++)
+        if(user.compare(*userIterator) == 0)
+            return true;
+    return false;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::FileExists
+ *
+ *******************************************************************/
+bool ChatClient::FileExists(string filename)
+{
+    struct stat buffer;
+    return (stat (filename.c_str(), &buffer) == 0);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetDestination
+ *
+ *******************************************************************/
+string ChatClient::GetDestination(string msg)
+{
+    int start = msg.find(MSG_TAG)+1;
+    start = msg.find(MSG_TAG, start)+2;
+    int finish = msg.length();
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetSource
+ *
+ *******************************************************************/
+string ChatClient::GetSource(string msg)
+{
+    int start = msg.find(USER_TAG)+1;
+    int finish = msg.find(MSG_TAG);
+    if(finish == string::npos)
+        finish = msg.length()-1;
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetFilename
+ *
+ *******************************************************************/
+string ChatClient::GetFilename(string msg)
+{
+    int start = msg.find(MSG_TAG)+1;
+    int finish = msg.find(MSG_TAG, start);
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetMsg
+ *
+ *******************************************************************/
+string ChatClient::GetMsg(string msg)
+{
+    int start = msg.find(MSG_TAG)+1;
+    int finish = msg.find(MSG_TAG, start);
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetFile
+ *
+ *******************************************************************/
+string ChatClient::GetFile(string msg)
+{
+    int start = msg.find(MSG_TAG)+1;
+    start = msg.find(MSG_TAG, start)+1;
+    return msg.substr(start, msg.length()-start-1);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CreateFile
+ *
+ *******************************************************************/
+void ChatClient::CreateFile(string filename, string file)
+{
+    ofstream outStream(basename(filename.c_str()));
+    outStream << file;
+    outStream.close();
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::ReadFile
+ *
+ *******************************************************************/
+string ChatClient::ReadFile(string filename)
+{
+    ifstream inStream (filename.c_str(), ios::in | ios::binary | ios::ate);
+    ifstream::pos_type fileSize = inStream.tellg();
+    inStream.seekg(0, ios::beg);
+
+    vector<char> bytes(fileSize);
+    inStream.read(&bytes[0], fileSize);
+
+    return string(&bytes[0], fileSize);
+}
 
 /*******************************************************************
  *
@@ -170,40 +254,13 @@ bool ChatClient::CheckPromptDisplayed()
  *******************************************************************/
 void ChatClient::StartClient()
 {
-    int currentState = CONNECT;
-
-    while(currentState != CLIENT_EXIT)
-        currentState = (this->*setupStateFunction[currentState])();
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetServerInfo
- *
- *******************************************************************/
-int ChatClient::GetServerInfo()
-{
-    serverPortStr = "";
-    bool validPort = true;
-
-    cout << "Server Port: ";
-    getline(cin, serverPortStr);
-    if(serverPortStr.compare(EXIT_CMD) == 0)
-        return CLIENT_EXIT;
-    serverPort = atoi(serverPortStr.c_str());
-    if( serverPort < 1024 || serverPort > 65535)
-        validPort = false;
-    for(int i=0; i<serverPortStr.length(); i++)
-        if(!isdigit(serverPortStr[i]))
-            validPort = false;
-
-    if(!validPort)
-    {
-        cout << "Invalid Port" << endl;
-        return SERVER_INFO;
-    }
-
-    return CONNECT;
+    if(!ConnectToServer())
+        return;
+    SendThread = thread(&ChatClient::ClientSend, this);
+    RecvThread = thread(&ChatClient::ClientRecv, this);
+    send_t = SendThread.native_handle();
+    recv_t = RecvThread.native_handle();
+    WaitForExit();
 }
 
 /*******************************************************************
@@ -211,11 +268,11 @@ int ChatClient::GetServerInfo()
  *      ChatClient::ConnectToServer
  *
  *******************************************************************/
-int ChatClient::ConnectToServer()
+bool ChatClient::ConnectToServer()
 {
-    cout << "Connecting to Chat Server on Port [" << serverPortStr << "]..." << endl;
-
     struct addrinfo hints, *addr, *results = NULL;
+    string recvMsg, recvTag, usernameMsg, neighborName;
+    int startIndex;
 
     //define connection
     bzero(&hints, sizeof(struct addrinfo));
@@ -226,7 +283,7 @@ int ChatClient::ConnectToServer()
     if(getaddrinfo(NULL, serverPortStr.c_str(), &hints, &results) != 0)
     {
         cout << "Error: could not resolve host information" << endl;
-        return SERVER_INFO;
+        return false;
     }
 
     socket_fd = -1; //socket descriptor
@@ -234,7 +291,7 @@ int ChatClient::ConnectToServer()
     //create the socket
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         cout << "Error: socket creation failed" << endl;
-        return SERVER_INFO;
+        return false;
     }
 
     //attempt to connect the socket for all addresses
@@ -251,125 +308,78 @@ int ChatClient::ConnectToServer()
         close(socket_fd);  //connection unnsuccesful
         socket_fd = -1;
     }
-
     freeaddrinfo(results);
 
     if(socket_fd == -1)
     {
-        cout << "Error: socket creation failed" << endl;
-        return SERVER_INFO;
+        DisplayMsg("Error: socket creation failed");
+        return false;
     }
 
-    printf("\033[1A\033[KConnected to Chat Server on Port [%s]\n", serverPortStr.c_str() );
+    // Wait for username request from server, then send username
+    // if username is taken, USERNAME_TAKEN message is returned
+    // if username available, list of other users is sent in OTHER_USERS message
+    recvMsg = ReceiveFromServer();
+    recvTag = GetTag(recvMsg);
+    usernameMsg = username + MSG_END;
+    if(CompareTag(recvTag, USERNAME_REQUEST))
+    {
+        SendMsg(usernameMsg);
+        recvMsg = ReceiveFromServer();
+        recvTag = GetTag(recvMsg);
+        if(CompareTag(recvTag, OTHER_USERS))
+        {
+            DisplayMsg("Connected to Server on Port " + serverPortStr);
+            DisplayMsg("Other Users: ", false);
+            while(GetNextNeighbor(recvMsg, neighborName))
+            {
+                DisplayMsg(neighborName + " ", false);
+                AddNeighbor(neighborName);
+            }
+            DisplayMsg("");
+            return true;
+        }
+        else
+            DisplayMsg("Error: Username is taken");
+    }
+    else
+        DisplayMsg("Error: Could not establish username with server");
 
-    return USERNAME;
+    return false;
 }
 
 /*******************************************************************
  *
- *      ChatClient::GetUsername
+ *      ChatClient::GetNextNeighbor
  *
  *******************************************************************/
-int ChatClient::GetUsername()
+bool ChatClient::GetNextNeighbor(string neighbors, string& name)
 {
-    bool validUsername, accepted = false;
-    char serverMsg, submit = USERNAME_SUBMIT;
-    string usernameMsg;
+    static int start = 0;
+    int finish;
 
-    while(1)
-    {
-        recv(socket_fd, &serverMsg, 1, 0);
-        if(serverMsg == USERNAME_REQUEST)
-            break;
-    }
-
-    while(!accepted)
-    {
-        validUsername = false;
-        while(!validUsername)
-        {
-            cout << "Username: ";
-            username = "";
-            getline(cin, username);
-            if(username.find(' ') != string::npos)
-                cout << "Usernames may not contain spaces" << endl;
-            else
-                validUsername = true;
-        }
-        usernameMsg = "";
-        usernameMsg += submit;
-        usernameMsg += username;
-        usernameMsg += MSG_END;
-        send(socket_fd, usernameMsg.c_str(), usernameMsg.length(), 0);
-        recv(socket_fd, &serverMsg, 1, 0);
-        switch(serverMsg)
-        {
-            case USERNAME_REQUEST:
-                cout << username << " is not available" << endl;
-                break;
-            case USERNAME_VALID:
-                cout << "[" << username << "] now connected" << endl;
-                accepted = true;
-                break;
-            default:
-                cout << "ERROR: could not send username to Server" << endl;
-                return SERVER_INFO;
-        }
-    }
-    prompt = "[" + username + "]>> ";
-    flush(cout);
-    return GET_USERS;
+    start = neighbors.find(USER_TAG, start);
+    if(start == string::npos)
+        return false;
+    start++;
+    finish = neighbors.find(USER_TAG, start);
+    if(finish == string::npos)
+        finish = neighbors.length()-1;
+    name = neighbors.substr(start, finish-start);
+    return true;
 }
 
 /*******************************************************************
  *
- *      ChatClient::GetOtherUsers
+ *      ChatClient::RemoveNeighbor
  *
  *******************************************************************/
-int ChatClient::GetOtherUsers()
+void ChatClient::RemoveNeighbor(string name)
 {
-    char users[100];
-    int numBytes, index, start = 0;
-    char getUsers = OTHER_USERS_REQUEST;
-    send(socket_fd, &getUsers, 1, 0);
+    vector<string>::iterator usernameIt;
 
-    string usersStr = "";
-
-    /* Retrieve Client's Username */
-    do
-    {
-        memset(users, 0, 100);
-        numBytes = recv(socket_fd, users, 100, 0);
-        if(numBytes < 0)
-        {
-            cout << "ERROR: could not receive other users" << endl;
-            return SERVER_INFO;
-        }
-        usersStr += string(users);
-    } while(users[numBytes-1] != MSG_END);
-
-    usersStr.erase(0,1);    //remove USERNAMES_REPLY tag
-    usersStr.pop_back();    //remove END_MSG tag
-    do
-    {
-        index = usersStr.find(USERNAME_END, start);
-        otherUsers.push_back(usersStr.substr(start, index));
-        start = index+1;
-    }while(index != string::npos);
-
-    return START_THREADS;
-}
-
-/*******************************************************************
- *
- *      ChatClient::SetupComplete
- *
- *******************************************************************/
-int ChatClient::SetupComplete()
-{
-    SendThread = thread(&ChatClient::ClientSend, this);
-    RecvThread = thread(&ChatClient::ClientRecv, this);
-    return COMPLETE;
+    usernameIt = find(otherUsers.begin(), otherUsers.end(), name);
+    otherUsers.erase(usernameIt);
 }
 
 /*******************************************************************
@@ -377,39 +387,17 @@ int ChatClient::SetupComplete()
  *      ChatClient::WaitForExit
  *
  *******************************************************************/
-int ChatClient::WaitForExit()
+void ChatClient::WaitForExit()
 {
-    int retVal;
-
     SendThread.join();
     RecvThread.join();
 
-    if(CheckShutdown())
-    {
-        cout << "Server shutdown; please reconnect" << endl;
-        retVal = SERVER_INFO;
-    }
-    else if(CheckDisconnect())
-    {
-        cout << "Client Disconnecting" << endl;
-        retVal = SERVER_INFO;
-    }
-    else if(CheckExit())
-    {
-        cout << "Client Exiting" << endl;
-        retVal = CLIENT_EXIT;
-    }
+    if(serverShutdown)
+        DisplayMsg("Server Shutdown");
+    else if(clientExiting)
+        DisplayMsg("Client Exiting");
     else
-    {
-        cout << "Error occured; exiting" << endl;
-        retVal = CLIENT_EXIT;
-    }
-
-    SetDisconnect(false);
-    SetExit(false);
-    SetShutdown(false);
-    close(socket_fd);
-    return retVal;
+        DisplayMsg("Error Occured, Client Exiting");
 }
 
 /*******************************************************************
@@ -421,16 +409,23 @@ void ChatClient::ClientSend()
 {
     string input, output;
 
-    int currentState = GET_INPUT;
-
     struct timeval timeout;
     timeout.tv_sec = 0;
     timeout.tv_usec = 1000;
-
     setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
 
-    while(currentState != END_THREAD)
-        currentState = (this->*sendStateFunction[currentState])(input, output);
+    while(1)
+    {
+        pthread_testcancel();
+        GetInput(input);
+        if(ParseInput(input, output))
+            SendMsg(output);
+        if(clientExiting)
+        {
+            TerminateThreads();
+            break;
+        }
+    }
 }
 
 /*******************************************************************
@@ -438,15 +433,14 @@ void ChatClient::ClientSend()
  *      ChatClient::GetInput
  *
  *******************************************************************/
-int ChatClient::GetInput(string& input, string& output)
+void ChatClient::GetInput(string& input)
 {
     fd_set fdSet;
     struct timeval timeout;
     char inputChar = 0;
 
     input = "";
-    output = "";
-    currentInput = prompt;
+    currentInput = "";
     DisplayPrompt();
 
     while(1)
@@ -457,31 +451,26 @@ int ChatClient::GetInput(string& input, string& output)
         timeout.tv_sec = 0;
         timeout.tv_usec = 500000;
         select(STDIN_FILENO+1, &fdSet, NULL, NULL, &timeout);
+        pthread_testcancel();
         if(signalDetected)
         {
             input = "exit";
             break;
         }
-        if(CheckShutdown())
-            break;
         if(FD_ISSET(STDIN_FILENO, &fdSet))
         {
             read(STDIN_FILENO, &inputChar, 1);
             if(inputChar == '\n')
+            {
+                SetPromptDisplayed(false);
                 break;
+            }
             input += inputChar;
             pthread_mutex_lock(&promptCheckLock);
             currentInput += inputChar;
             pthread_mutex_unlock(&promptCheckLock);
         }
     }
-
-    SetPromptDisplayed(false);
-    if(CheckShutdown())
-        return END_THREAD;
-    if(input.length() > 1)
-        return PARSE_INPUT;
-    return GET_INPUT;
 }
 
 /*******************************************************************
@@ -489,96 +478,120 @@ int ChatClient::GetInput(string& input, string& output)
  *      ChatClient::ParseInput
  *
  *******************************************************************/
-int ChatClient::ParseInput(string& input, string& output)
+bool ChatClient::ParseInput(string& input, string& output)
 {
-    int firstSpace, secondSpace;
-    string cmd, destination, msg, filename;
-    char tag;
+    string cmd, msg, filename, destination, file;
 
-    firstSpace = input.find_first_of(' ');
-    //maybe change to let if statement carry on in the event of not being exit or disconnect
-    if(firstSpace == string::npos)
-    {
-        // exit
-        if(input.compare(EXIT_CMD) == 0)
-        {
-            tag = CLIENT_SHUTDOWN;
-            SetExit(true);
-            DisplayMsg("Shutting Down...");
-            output += tag;
-        }
-        // disconnect
-        else if(input.compare(DISCONNECT_CMD) == 0)
-        {
-            tag = CLIENT_SHUTDOWN;
-            SetDisconnect(true);
-            DisplayMsg("Disconnecting From Server...");
-            output += tag;
-        }
-        // error
-        else
-        {
-            DisplayMsg("Error: Incorrect Input");
-            return GET_INPUT;
-        }
-    }
-    else
-    {
-        cmd = input.substr(0, firstSpace);
-        secondSpace = input.find_first_of(' ', firstSpace+1);
+    cmd = GetCmd(input);
 
-        // send msg
-        if(cmd.compare(SEND_CMD) == 0)
-        {
-            tag = SEND_MSG;
-            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
-            msg = input.substr(secondSpace+1, input.length()-secondSpace-1);
-            output += tag + username + MSG_SRC_END + destination + MSG_DST_END + msg;
-        }
-        // send file
-        else if(cmd.compare(SEND_FILE_CMD) == 0)
-        {
-            tag = SEND_FILE;
-            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
-            filename = input.substr(secondSpace+1, input.length()-secondSpace-1);
-            output += tag + username + MSG_SRC_END + destination + MSG_DST_END + filename + FILENAME_END;
-            //get file
-        }
-        // broadcast msg
-        else if(cmd.compare(BRDCST_CMD) == 0)
-        {
-            tag = BRDCST_MSG;
-            msg = input.substr(firstSpace+1, input.length()-firstSpace-1);
-            output += tag + msg;
-        }
-        // broadcast file
-        else if(cmd.compare(BRDCST_FILE_CMD) == 0)
-        {
-            tag = BRDCST_FILE;
-            filename = input.substr(firstSpace+1, input.length()-firstSpace-1);
-            output += tag + username + MSG_SRC_END + filename + FILENAME_END;
-            //get file
-        }
-        // blockcast msg
-        else if(cmd.compare(BLKCST_CMD) == 0)
-        {
-            tag = BLKCST_MSG;
-            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
-            msg = input.substr(secondSpace+1, input.length()-secondSpace-1);
-            output += tag + username + MSG_SRC_END + destination + MSG_DST_END + msg;
-        }
-        // blockcast file
-        else if(cmd.compare(BLKCST_FILE_CMD) == 0)
-        {
-            tag = BLKCST_FILE;
-            destination = input.substr(firstSpace+1, secondSpace-firstSpace-1);
-            filename = input.substr(secondSpace+1, input.length()-secondSpace-1);
-            output += tag + username + MSG_SRC_END + destination + MSG_DST_END + filename + FILENAME_END;
-            //get file
-        }
+    // exit
+    if(CompareCmd(cmd, EXIT_CMD))
+    {
+        clientExiting = true;
+        output = string(CLIENT_SHUTDOWN) + MSG_END;
+        return true;
     }
-    output += MSG_END;
-    return SEND_INPUT;
+
+    // broadcast message
+    if(CompareCmd(cmd, BRDCST_CMD))
+    {
+        msg = GetMsg(input);
+        output = string(BRDCST_MSG) + MSG_TAG + msg + MSG_TAG + MSG_END;
+        return true;
+    }
+
+    // broadcast file
+    if(CompareCmd(cmd, BRDCST_FILE_CMD))
+    {
+        filename = GetFilename(input);
+        if(!FileExists(filename))
+        {
+            DisplayMsg("\nError: file [" + filename + "] does not exist");
+            return false;
+        }
+        filename = basename(filename.c_str());
+        file = ReadFile(filename);
+        output = string(BRDCST_FILE) + MSG_TAG + filename + MSG_TAG + file + MSG_END;
+        return true;
+    }
+
+    // send message
+    if(CompareCmd(cmd, SEND_CMD))
+    {
+        // check if destination exists
+        destination = GetDestination(input);
+        if(!UserExists(destination))
+        {
+            DisplayMsg("\nError: user [" + destination + "] not found");
+            return false;
+        }
+        msg = GetMsg(input);
+        output = string(SEND_MSG) + USER_TAG + destination + MSG_TAG + msg + MSG_TAG + MSG_END;
+        return true;
+    }
+
+    // send file
+    if(CompareCmd(cmd, SEND_FILE_CMD))
+    {
+        // check if destination exists
+        destination = GetDestination(input);
+        if(!UserExists(destination))
+        {
+            DisplayMsg("\nError: user [" + destination + "] not found");
+            return false;
+        }
+        filename = GetFilename(input);
+        if(!FileExists(filename))
+        {
+            DisplayMsg("\nError: file [" + filename + "] does not exist");
+            return false;
+        }
+        filename = basename(filename.c_str());
+        file = ReadFile(filename);
+        output = string(SEND_FILE) + USER_TAG + destination + MSG_TAG + filename + MSG_TAG + file + MSG_END;
+        return true;
+    }
+
+    // blockcast message
+    if(CompareCmd(cmd, BLKCST_CMD))
+    {
+        // check if destination exists
+        destination = GetDestination(input);
+        if(!UserExists(destination))
+        {
+            DisplayMsg("\nError: user [" + destination + "] not found");
+            return false;
+        }
+        msg = GetMsg(input);
+        output = string(BLKCST_MSG) + USER_TAG + destination + MSG_TAG + msg + MSG_TAG + MSG_END;
+        return true;
+    }
+
+    // blockcast file
+    if(CompareCmd(cmd, BLKCST_FILE_CMD))
+    {
+        // check if destination exists
+        destination = GetDestination(input);
+        if(!UserExists(destination))
+        {
+            DisplayMsg("\nError: user [" + destination + "] not found");
+            return false;
+        }
+        filename = GetFilename(input);
+        if(!FileExists(filename))
+        {
+            DisplayMsg("\nError: file [" + filename + "] does not exist");
+            return false;
+        }
+        filename = basename(filename.c_str());
+        file = ReadFile(filename);
+        output = string(BLKCST_FILE) + USER_TAG + destination + MSG_TAG + filename + MSG_TAG + file + MSG_END;
+        return true;
+    }
+
+    DisplayMsg("\nError: Command Not Found");
+    return false;
+
 }
 
 /*******************************************************************
@@ -586,19 +599,10 @@ int ChatClient::ParseInput(string& input, string& output)
  *      ChatClient::SendMsg
  *
  *******************************************************************/
-int ChatClient::SendMsg(string& input, string& output)
+void ChatClient::SendMsg(string msg)
 {
-    struct timeval timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 1000;
-
-    setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(struct timeval));
-
-    if(send(socket_fd, output.c_str(), output.length(), 0) < 0)
+    if(send(socket_fd, msg.c_str(), msg.length(), 0) < 0)
         DisplayMsg("ERROR: could not send message to server");
-    if(CheckDisconnect() || CheckExit() || CheckShutdown())
-        return END_THREAD;
-    return GET_INPUT;
 }
 
 /*******************************************************************
@@ -608,30 +612,19 @@ int ChatClient::SendMsg(string& input, string& output)
  *******************************************************************/
 void ChatClient::ClientRecv()
 {
-    string recvMsg, output;
-    int currentState;
-    bool disconnection = false;
+    string recvMsg, display;
 
     while(1)
     {
-        currentState = GET_TYPE;
-
-        recvMsg = "";
-        while(!ReceiveFromServer(recvMsg))
+        pthread_testcancel();
+        recvMsg = ReceiveFromServer();
+        ParseMessage(recvMsg, display);
+        if(serverShutdown)
         {
-            if(CheckDisconnect() || CheckExit() || CheckShutdown())
-            {
-                disconnection = true;
-                break;
-            }
-        }
-        if(disconnection)
+            TerminateThreads();
             break;
-
-        output = "";
-
-        while(currentState != PARSE_COMPLETE)
-            currentState = (this->*recvStateFunction[currentState])(recvMsg, output);
+        }
+        DisplayMsg(display);
     }
 }
 
@@ -640,19 +633,11 @@ void ChatClient::ClientRecv()
  *      ChatClient::ReceiveFromServer
  *
  *******************************************************************/
-bool ChatClient::ReceiveFromServer(string& recvMsg)
+string ChatClient::ReceiveFromServer()
 {
-    string currentMsg = "";
+    string currentMsg;
     char msg[BUFFER_LENGTH];
     int numBytes;
-
-    struct timeval timeout;
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
-
-    setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-    int x;
 
     do
     {
@@ -660,118 +645,69 @@ bool ChatClient::ReceiveFromServer(string& recvMsg)
         numBytes = recv(socket_fd, msg, BUFFER_LENGTH, 0);
         if(numBytes < 0)
         {
-            if ((errno != EAGAIN) && (errno != EWOULDBLOCK))
-            {
-                cout << "ERROR: could not receive from server" << endl;
-                return false;
-            }
-            //timeout
-            else
-                return false;
+            DisplayMsg("ERROR: could not receive from server");
+            return "";
         }
-        x = msg[0];
-        if(x == SERVER_SHUTDOWN)
-            cout << "TAG: " << x << endl;
         currentMsg += string(msg);
     } while(msg[numBytes-1] != MSG_END);
-    cout << "RECV!" << endl;
 
-    recvMsg = currentMsg;
-    return true;
+    return currentMsg;
 }
+
 
 /*******************************************************************
  *
- *      ChatClient::GetMsgType
+ *      ChatClient::ParseMessage
  *
  *******************************************************************/
-int ChatClient::GetMsgType(string msg, string& display)
+void ChatClient::ParseMessage(string input, string &display)
 {
-    recvMsgType = msg[0];
-    return GET_SRC;
-}
+    string tag, source, filename, msg, file;
 
-/*******************************************************************
- *
- *      ChatClient::GetSource
- *
- *******************************************************************/
-int ChatClient::GetSource(string msg, string& display)
-{
-    int type = (int)recvMsgType;
-    cout << "TYPE: " << type << endl;
-    if(recvMsgType == USER_DISCONNECT)
+    tag = GetTag(input);
+
+    // server shutdown
+    if(CompareTag(tag, SERVER_SHUTDOWN))
     {
-        display += "[@" + msg.substr(1,msg.length()-2) + "]->DISCONNECTED";
-        return DISPLAY;
-    }
-    if(recvMsgType == USER_CONNECT)
-    {
-        display += "[" + msg.substr(1,msg.length()-2) + "]->CONNECTED";
-        return DISPLAY;
-    }
-    if(recvMsgType == SERVER_SHUTDOWN)
-    {
-        display += "Server Shutting Down...";
-        SetShutdown(true);
-        return DISPLAY;
+        serverShutdown = true;
+        return;
     }
 
-    srcEnd = msg.find(MSG_SRC_END);
-    display += "[" + msg.substr(1,srcEnd-1) + "]->";
+    source = GetSource(input);
 
-    if(recvMsgType == MSG_RCV)
-        return GET_MSG;
-    else if(recvMsgType == FILE_RCV)
-        return GET_FILENAME;
-    else
-        return PARSE_COMPLETE;
-}
+    // new user connected
+    if(CompareTag(tag, USER_CONNECT))
+    {
+        AddNeighbor(source);
+        DisplayMsg(source + " connnected");
+        return;
+    }
 
-/*******************************************************************
- *
- *      ChatClient::GetFilename
- *
- *******************************************************************/
-int ChatClient::GetFilename(string msg, string& display)
-{
-    filenameEnd = msg.find(FILENAME_END);
-    filename = msg.substr(srcEnd+1, filenameEnd-srcEnd+1);
-    display += "File: " + filename;
-    return GET_FILE;
-}
+    // user disconnected
+    if(CompareTag(tag, USER_DISCONNECT))
+    {
+        RemoveNeighbor(source);
+        DisplayMsg(source + " disconnnected");
+        return;
+    }
 
-/*******************************************************************
- *
- *      ChatClient::GetMsg
- *
- *******************************************************************/
-int ChatClient::GetMsg(string msg, string& display)
-{
-    display += msg.substr(srcEnd+1, msg.length()-srcEnd);
-    return DISPLAY;
-}
+    // message received
+    if(CompareTag(tag, MSG_RCV))
+    {
+        msg = GetMsg(input);
+        DisplayMsg(source + ": " + msg);
+        return;
+    }
 
-/*******************************************************************
- *
- *      ChatClient::GetFile
- *
- *******************************************************************/
-int ChatClient::GetFile(string msg, string& display)
-{
-    //actually get the entire file and save it to current directory
-    return DISPLAY;
-}
-
-/*******************************************************************
- *
- *      ChatClient::DisplayRecvMsg
- *
- *******************************************************************/
-int ChatClient::DisplayRecvMsg(string msg, string& display)
-{
-    DisplayMsg(display);
-    return PARSE_COMPLETE;
+    // file received
+    if(CompareTag(tag, FILE_RCV))
+    {
+        filename = GetFilename(input);
+        file = GetFile(input);
+        CreateFile(filename, file);
+        DisplayMsg("File: [" + filename + "] sent by " + source);
+        return;
+    }
 }
 
 /*******************************************************************
@@ -783,21 +719,41 @@ void ChatClient::DisplayMsg(string msg, bool newline)
 {
     pthread_mutex_lock(&displayLock);
     bool insertLineAbove = CheckPromptDisplayed();
-    /*if(insertLineAbove)
+    if(insertLineAbove)
     {
-        printf("\033[s\r");
-        cout << msg << endl;
+        // not printing the prompt on line after current line?!
+        // should go:
+        // 1) prompt on line x
+        // 2) display output on line x
+        // 3) display prompt and input again on line x+1
+        // but
+        // 3) displays prompt on line x+2?
         pthread_mutex_lock(&promptCheckLock);
-        cout << currentInput;
+        printf("\r\033[K");
+        fflush(stdout);
+        printf("\r%s", msg.c_str());
+        fflush(stdout);
+        printf("\n");
+        fflush(stdout);
+        printf("%s", prompt.c_str());
+        fflush(stdout);
+        /*int length = prompt.length() + currentInput.length() + 1;
+        while(--length >= 0)
+        {
+            printf("\033[1C");
+            fflush(stdout);
+        }*/
         pthread_mutex_unlock(&promptCheckLock);
-        printf("\033[u\033[1B");
     }
     else
-    {*/
+    {
         cout << msg;
         if(newline)
             cout << endl;
-    //}
+    }
+    /*cout << msg;
+    if(newline)
+        cout << endl;*/
     flush(cout);
     pthread_mutex_unlock(&displayLock);
 }
@@ -809,6 +765,9 @@ void ChatClient::DisplayMsg(string msg, bool newline)
  *******************************************************************/
 void ChatClient::DisplayPrompt()
 {
-    DisplayMsg(prompt, false);
+    pthread_mutex_lock(&displayLock);
+    cout << prompt;
+    flush(cout);
     SetPromptDisplayed(true);
+    pthread_mutex_unlock(&displayLock);
 }

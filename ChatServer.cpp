@@ -103,37 +103,40 @@ void ChatServer::StartServer()
  *******************************************************************/
 void ChatServer::ListenForConnections()
 {
-    thread *initThread;
+    thread *initThread;         // thread to connect to client
+    int connectSocket;          // socket for connected client
+    struct timeval timeout;     // timeout for select() call
+    fd_set fdSet;               // descriptor set for select()
+
+    /* Listen for Connections */
     if(listen(listenSocket, MAX_LISTEN_QUEUE) < 0)
     {
-        cout << "ERROR: Server Unable to Listen for Connections" << endl;
+        DisplayMsg("ERROR: Server Unable to Listen for Connections");
         return;
     }
-    cout << "Chat Server Listening for Connections on Port <" << serverPort << ">" << endl;
 
-    int connectSocket;
-    struct timeval timeout;
-    fd_set fdSet;
-
+    /*
+     * Loop listening for connections using a select() call on the listening socket
+     * If select() has a timeout, check if a signal was sent (SIGINT) to shutdown server
+     * If listen socket has a connection waiting, accept the connection and create new thread
+     */
+    DisplayMsg("Chat Server Listening for Connections on Port: " + serverPort);
     while(1)
     {
+        // these variables must be reset after every select() call
         FD_ZERO (&fdSet);
         FD_SET (listenSocket, &fdSet);
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
         select(listenSocket+1, &fdSet, NULL, NULL, &timeout);
+        // signalDetected set by signal handler when SIGINT received
         if(signalDetected)
         {
-            close(listenSocket);
-            DisplayMsg("\nServer Shutting Down, Notifying Clients...");
-            char tag = SERVER_SHUTDOWN, endMsg = MSG_END;
-            string msg = "";
-            msg += tag + endMsg;
-            Broadcast("", msg);
-            CloseAllSockets();
+            ServerShutdown();
             break;
         }
+        // listenSocket is set when connection is waiting
         if(FD_ISSET (listenSocket, &fdSet))
         {
             connectSocket = accept(listenSocket, NULL, NULL);
@@ -142,7 +145,7 @@ void ChatServer::ListenForConnections()
                 DisplayMsg("ERROR: An incoming connection attempt failed");
                 continue;
             }
-            initThread = new thread(&ChatServer::CreateThread, this, connectSocket);
+            initThread = new thread(&ChatServer::ClientThread, this, connectSocket);
             initThread->detach();
         }
     }
@@ -150,16 +153,93 @@ void ChatServer::ListenForConnections()
 
 /*******************************************************************
  *
- *      ChatServer::CreateThread
+ *      ChatServer::ClientThread
  *
  *******************************************************************/
-void ChatServer::CreateThread(int newSocket)
+void ChatServer::ClientThread(int clientSocket)
 {
-    string newUser;
-    if(!InitializeConnection(newSocket, newUser))
+    string username;
+    if(!InitializeConnection(clientSocket, username))
         return;
-    thread clientThread (&ChatServer::ClientThread, this, newSocket, newUser);
-    clientThread.detach();
+
+    string recvMsg, sendMsg, destination, display, filename, data;
+    string recvTag, sendTag;
+
+    while(1)
+    {
+        recvMsg = ReceiveFromClient(clientSocket, username);
+        recvTag = GetTag(recvMsg);
+
+        // send message
+        if(CompareTag(recvTag, SEND_MSG))
+        {
+            destination = GetDestination(recvMsg);
+            if(destination.compare(username) == 0)
+                continue;
+            sendMsg = string(MSG_RCV) + USER_TAG + username + MSG_TAG + GetMsg(recvMsg) + MSG_TAG + MSG_END;
+            DisplayMsg(username + " sent message to " + destination);
+            SendToClient(destination, sendMsg);
+            continue;
+        }
+
+        // send file
+        if(CompareTag(recvTag, SEND_FILE))
+        {
+            destination = GetDestination(recvMsg);
+            if(destination.compare(username) == 0)
+                continue;
+            sendMsg = string(FILE_RCV) + USER_TAG + username + MSG_TAG + GetFilename(recvMsg) + MSG_TAG + GetFile(recvMsg) + MSG_END;
+            DisplayMsg(username + " sent file to " + destination);
+            SendToClient(destination, sendMsg);
+            continue;
+        }
+
+        // broadcast message
+        if(CompareTag(recvTag, BRDCST_MSG))
+        {
+            sendMsg = string(MSG_RCV) + USER_TAG + username + MSG_TAG + GetMsg(recvMsg) + MSG_TAG + MSG_END;
+            DisplayMsg(username + " broadcast message");
+            Broadcast(username, sendMsg);
+            continue;
+        }
+
+        // broadcast file
+        if(CompareTag(recvTag, BRDCST_FILE))
+        {
+            sendMsg = string(FILE_RCV) + USER_TAG + username + MSG_TAG + GetFilename(recvMsg) + MSG_TAG + GetFile(recvMsg) + MSG_END;
+            DisplayMsg(username + " broadcast file");
+            Broadcast(username, sendMsg);
+            continue;
+        }
+
+        // blockcast message
+        if(CompareTag(recvTag, BLKCST_MSG))
+        {
+            destination = GetDestination(recvMsg);
+            sendMsg = string(MSG_RCV) + USER_TAG + username + MSG_TAG + GetMsg(recvMsg) + MSG_TAG + MSG_END;
+            DisplayMsg(username + " blockcast message, blocked " + destination);
+            Blockcast(username, destination, sendMsg);
+            continue;
+        }
+
+        // blockcast file
+        if(CompareTag(recvTag, BLKCST_FILE))
+        {
+            destination = GetDestination(recvMsg);
+            sendMsg = string(FILE_RCV) + USER_TAG + username + MSG_TAG + GetFilename(recvMsg) + MSG_TAG + GetFile(recvMsg) + MSG_END;
+            DisplayMsg(username + " blockcast file, blocked " + destination);
+            Blockcast(username, destination, sendMsg);
+            continue;
+        }
+
+        // client shutdown
+        if(CompareTag(recvTag, CLIENT_SHUTDOWN))
+        {
+            DisplayMsg(username + " disconnected");
+            Disconnection(username);
+            break;
+        }
+    }
 }
 
 /*******************************************************************
@@ -169,154 +249,26 @@ void ChatServer::CreateThread(int newSocket)
  *******************************************************************/
 bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
 {
-    int tries = 0, numBytes;
-    bool sent = false, usernameRecvErr = false, usernameAccepted = false;
-    char usernameReq = USERNAME_REQUEST, usernameValid = USERNAME_VALID;
-    char newUsernameBuf[BUFFER_LENGTH];
-    char otherUsersReqBuf;
-    string otherUsers, temp;
+    string nameRequest = string(USERNAME_REQUEST) + MSG_END;
+    string otherUsers = CreateAllUsersMsg();
+    string invalidName = string(USERNAME_TAKEN) + MSG_END;
 
-    while(!usernameAccepted)
+    send(newSocket, nameRequest.c_str(), nameRequest.length(), 0);
+    newUsername = ReceiveFromClient(newSocket, "connecting user");
+    newUsername.pop_back();
+    if(UsernameAvailable(newUsername))
     {
-        /* Send Client Username Request */
-        while(!sent)
-        {
-            if(send(newSocket, &usernameReq, 1, 0) < 0)
-            {
-                DisplayMsg("ERROR: could not send username request to new client");
-                if(tries++ == MAX_TRIES)
-                {
-                    DisplayMsg("Dropping new connection; could not get username");
-                    close(newSocket);
-                    break;
-                }
-            }
-            else
-                sent = true;
-        }
-        if(!sent)
-            return false;
-
-        string newUsername = "";
-
-        /* Retrieve Client's Username */
-        do
-        {
-            memset(newUsernameBuf, 0, BUFFER_LENGTH);
-            numBytes = recv(newSocket, newUsernameBuf, BUFFER_LENGTH, 0);
-            if(numBytes < 0)
-            {
-                DisplayMsg("ERROR: could not receive new username");
-                usernameRecvErr = true;
-                break;
-            }
-            newUsername += string(newUsernameBuf);
-        } while(newUsernameBuf[numBytes-1] != MSG_END);
-
-        if(usernameRecvErr || newUsername[0] != USERNAME_SUBMIT)
-            return false;
-
-        /* Check if username available */
-        newUsername.erase(0,1);  //remove USERNAME_SUBMIT code
-        newUsername.pop_back();   //remove END_MSG indicator
-        if(UsernameAvailable(newUsername))
-        {
-            DisplayMsg("[" + newUsername + "]->CONNECTED");
-            otherUsers = CreateAllUsersMsg();
-            AddNewUser(newUsername, newSocket);
-            usernameAccepted = true;
-            send(newSocket, &usernameValid, 1, 0);
-            temp = newUsername;
-        }
-        else
-        {
-            sent = false;
-            DisplayMsg("New Client Attempted Connection; Username [" + newUsername + "] Already In Use");
-        }
+        send(newSocket, otherUsers.c_str(), otherUsers.length(), 0);
+        NewConnection(newUsername);
+        AddNewUser(newUsername, newSocket);
+        DisplayMsg(newUsername + " connected");
+        return true;
     }
-    newUsername = temp;
-    recv(newSocket, &otherUsersReqBuf, 1, 0);
-    send(newSocket, otherUsers.c_str(), otherUsers.length(), 0);
-    NewConnection(newUsername);
-    return true;
-}
-
-/*******************************************************************
- *
- *      ChatServer::ClientThread
- *
- *******************************************************************/
-void ChatServer::ClientThread(int clientSocket, string username)
-{
-    string recvMsg, sendMsg, source, destination, display, filename, data;
-    char recvTag, sendTag;
-
-    source = "[" + username + "]->";
-
-    while(1)
+    else
     {
-        recvMsg = ReceiveFromClient(clientSocket, username);
-        recvTag = GetMsgTag(recvMsg);
-        switch(recvTag)
-        {
-            case SEND_MSG:
-                sendTag = MSG_RCV;
-                destination = GetMsgDestination(recvMsg);
-                if(destination.compare(username) == 0)
-                    break;
-                data = GetMsgData(recvMsg, recvTag);
-                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "[" + destination + "]: " + data);
-                SendToClient(destination, sendMsg);
-                break;
-            case SEND_FILE:
-                sendTag = FILE_RCV;
-                destination = GetMsgDestination(recvMsg);
-                if(destination.compare(username) == 0)
-                    break;
-                filename = GetMsgFilename(recvMsg, recvTag);
-                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "[" + destination + "]: " + filename);
-                SendToClient(destination, sendMsg);
-                break;
-            case BRDCST_MSG:
-                sendTag = MSG_RCV;
-                data = GetMsgData(recvMsg, recvTag);
-                sendMsg = recvMsg.replace(0,1,1,sendTag);
-                DisplayMsg(source + "[BROADCAST]: " + data);
-                Broadcast(username, sendMsg);
-                break;
-            case BRDCST_FILE:
-                sendTag = FILE_RCV;
-                filename = GetMsgFilename(recvMsg, recvTag);
-                sendMsg = recvMsg.replace(0,1,1,sendTag);
-                DisplayMsg(source + "[BROADCAST]: " + filename);
-                Broadcast(username, sendMsg);
-                break;
-            case BLKCST_MSG:
-                sendTag = MSG_RCV;
-                destination = GetBlockedDestination(recvMsg);
-                data = GetMsgData(recvMsg, recvTag);
-                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "[BLOCKCAST][" + destination + "]: " + data);
-                Blockcast(username, destination, sendMsg);
-                break;
-            case BLKCST_FILE:
-                sendTag = FILE_RCV;
-                destination = GetBlockedDestination(recvMsg);
-                filename = GetMsgFilename(recvMsg, recvTag);
-                sendMsg = RemoveMsgDestination(recvMsg).replace(0,1,1,sendTag);
-                DisplayMsg(source + "[BLOCKCAST][" + destination + "]: " + filename);
-                Blockcast(username, destination, sendMsg);
-                break;
-            case CLIENT_SHUTDOWN:
-                DisplayMsg(source + "DISCONNECTED");
-                Disconnection(username);
-                break;
-            default:
-                break;
-        }
-        DisplayMsg("Sending: " + sendMsg);
+        send(newSocket, invalidName.c_str(), invalidName.length(), 0);
+        close(newSocket);
+        return false;
     }
 }
 
@@ -366,7 +318,6 @@ void ChatServer::SendToClient(string username, string msg)
  *******************************************************************/
 void ChatServer::Broadcast(string sender, string msg)
 {
-    DisplayMsg("brdcast");
     vector<string>::iterator it;
     vector<string>tempUsernames;
 
@@ -376,10 +327,7 @@ void ChatServer::Broadcast(string sender, string msg)
 
     for(it = tempUsernames.begin(); it != tempUsernames.end(); it++)
         if(sender.compare(*it) != 0)
-        {
-            cout << "Sending to: " << *it << endl;
             SendToClient(*it, msg);
-        }
 }
 
 /*******************************************************************
@@ -387,7 +335,7 @@ void ChatServer::Broadcast(string sender, string msg)
  *      ChatServer::Blockcast
  *
  *******************************************************************/
-void ChatServer::Blockcast(string sender, string username, string msg)
+void ChatServer::Blockcast(string sender, string blockedUser, string msg)
 {
     vector<string>::iterator it;
     vector<string>tempUsernames;
@@ -397,7 +345,7 @@ void ChatServer::Blockcast(string sender, string username, string msg)
     pthread_mutex_unlock(&updateLock);
 
     for(it = tempUsernames.begin(); it != tempUsernames.end(); it++)
-        if(username.compare(*it) != 0 && sender.compare(*it) != 0)
+        if(blockedUser.compare(*it) != 0 && sender.compare(*it) != 0)
             SendToClient(*it, msg);
 }
 
@@ -408,9 +356,7 @@ void ChatServer::Blockcast(string sender, string username, string msg)
  *******************************************************************/
 void ChatServer::NewConnection(string username)
 {
-    string connectionMsg;
-    char tag = USER_CONNECT;
-    connectionMsg = tag + username + MSG_END;
+    string connectionMsg = string(USER_CONNECT) + USER_TAG + username + MSG_END;
     Broadcast(username, connectionMsg);
 }
 
@@ -421,11 +367,23 @@ void ChatServer::NewConnection(string username)
  *******************************************************************/
 void ChatServer::Disconnection(string username)
 {
-    string disconnectMsg;
-    char tag = USER_DISCONNECT;
-    disconnectMsg = tag + username + MSG_END;
+    string disconnectMsg = string(USER_DISCONNECT) + USER_TAG + username + MSG_END;
     RemoveUser(username);
     Broadcast(username, disconnectMsg);
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::ServerShutdown
+ *
+ *******************************************************************/
+void ChatServer::ServerShutdown()
+{
+    close(listenSocket);
+    DisplayMsg("\nServer Shutting Down, Notifying Clients...");
+    string msg = string(SERVER_SHUTDOWN) + MSG_END;
+    Broadcast(" ", msg);
+    CloseAllSockets();
 }
 
 /*******************************************************************
@@ -481,15 +439,13 @@ void ChatServer::RemoveUser(string username)
  *******************************************************************/
 string ChatServer::CreateAllUsersMsg()
 {
-    char reply = USERNAMES_REPLY;
-    string allUsers = "";
-    allUsers += reply;
+    string allUsers = string(OTHER_USERS);
     vector<string>::iterator userIterator;
     pthread_mutex_lock(&updateLock);
     for(userIterator = usernames.begin(); userIterator != usernames.end(); userIterator++)
     {
+        allUsers += USER_TAG;
         allUsers += *userIterator;
-        allUsers += USERNAME_END;
     }
     allUsers += MSG_END;
     pthread_mutex_unlock(&updateLock);
@@ -510,95 +466,70 @@ void ChatServer::DisplayMsg(string msg)
 
 /*******************************************************************
  *
- *      ChatServer::GetMsgTag
+ *      ChatServer::GetTag
  *
  *******************************************************************/
-char ChatServer::GetMsgTag(string msg)
+string ChatServer::GetTag(string msg)
 {
-    return msg[0];
+    return msg.substr(0,2);
 }
 
 /*******************************************************************
  *
- *      ChatServer::GetMsgDestination
+ *      ChatServer::CompareTag
  *
  *******************************************************************/
-string ChatServer::GetMsgDestination(string msg)
+bool ChatServer::CompareTag(string tag, string checkTag)
 {
-    int start = msg.find(MSG_SRC_END)+1;
-    int finish = msg.find(MSG_DST_END);
-    return msg.substr(start, finish-start);
-
+    return (tag.compare(checkTag) == 0);
 }
 
 /*******************************************************************
  *
- *      ChatServer::GetBlockedDestination
+ *      ChatServer::GetDestination
  *
  *******************************************************************/
-string ChatServer::GetBlockedDestination(string msg)
+string ChatServer::GetDestination(string msg)
 {
-    return GetMsgDestination(msg);
-}
-
-/*******************************************************************
- *
- *      ChatServer::RemoveMsgDestination
- *
- *******************************************************************/
-string ChatServer::RemoveMsgDestination(string msg)
-{
-    int start = msg.find(MSG_SRC_END)+2;
-    int finish = msg.find(MSG_DST_END);
-    return msg.erase(start, finish-start);
-}
-
-/*******************************************************************
- *
- *      ChatServer::GetMsgFilename
- *
- *******************************************************************/
-string ChatServer::GetMsgFilename(string msg, char tag)
-{
-    int start, finish;
-    switch(tag)
-    {
-        case SEND_FILE:
-        case BLKCST_FILE:
-            start = msg.find(MSG_DST_END)+1;
-            break;
-        case BRDCST_FILE:
-            start = msg.find(MSG_SRC_END)+1;
-            break;
-        default:
-            return "";
-    }
-    finish = msg.find(FILENAME_END);
+    int start = msg.find(USER_TAG)+1;
+    int finish = msg.find(MSG_TAG);
     return msg.substr(start, finish-start);
 }
 
 /*******************************************************************
  *
- *      ChatServer::GetMsgData
+ *      ChatServer::GetFilename
  *
  *******************************************************************/
-string ChatServer::GetMsgData(string msg, char tag)
+string ChatServer::GetFilename(string msg)
 {
-    int start, finish;
-    switch(tag)
-    {
-        case SEND_MSG:
-        case BLKCST_MSG:
-            start = msg.find(MSG_DST_END)+1;
-            break;
-        case BRDCST_MSG:
-            start = msg.find(MSG_SRC_END)+1;
-            break;
-        default:
-            return "";
-    }
-    finish = msg.find(MSG_END);
+    int start = msg.find(MSG_TAG)+1;
+    int finish = msg.find(MSG_TAG, start);
     return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::GetMsg
+ *
+ *******************************************************************/
+string ChatServer::GetMsg(string msg)
+{
+    int start = msg.find(MSG_TAG)+1;
+    int finish = msg.find(MSG_TAG, start);
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::GetFile
+ *
+ *******************************************************************/
+string ChatServer::GetFile(string msg)
+{
+    int start = msg.find(MSG_TAG)+1;
+    start = msg.find(MSG_TAG, start)+1;
+    return msg.substr(start, msg.length()-start-1);
 }
 
 /*******************************************************************
