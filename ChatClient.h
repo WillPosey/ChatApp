@@ -14,6 +14,7 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>

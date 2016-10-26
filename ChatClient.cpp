@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <cstring>
 #include <algorithm>
+#include <sstream>
 
 using namespace std;
 
@@ -40,7 +41,7 @@ int main(int argc, char** argv)
 ChatClient::ChatClient(char* clientUsername, char* port)
 {
     username = string(clientUsername);
-    prompt = "[" + username + "]: ";
+    prompt = "[" + username + "] # ";
     serverPortStr = string(port);
     serverPort = atoi(port);
     clientExiting = serverShutdown = promptDisplayed = false;
@@ -226,7 +227,9 @@ string ChatClient::GetFile(string msg)
 void ChatClient::CreateFile(string filename, string file)
 {
     ofstream outStream(basename(filename.c_str()));
-    outStream << file;
+    //outStream << file;
+    for(int i=0; i<file.length(); i++)
+        outStream.write(&file[i], 1);
     outStream.close();
 }
 
@@ -237,7 +240,7 @@ void ChatClient::CreateFile(string filename, string file)
  *******************************************************************/
 string ChatClient::ReadFile(string filename)
 {
-    ifstream inStream (filename.c_str(), ios::in | ios::binary | ios::ate);
+    ifstream inStream (filename.c_str(), ios::in | ios::ate);
     ifstream::pos_type fileSize = inStream.tellg();
     inStream.seekg(0, ios::beg);
 
@@ -245,6 +248,30 @@ string ChatClient::ReadFile(string filename)
     inStream.read(&bytes[0], fileSize);
 
     return string(&bytes[0], fileSize);
+
+    //ifstream inStream { filename.c_str() };
+    //string file_contents { istreambuf_iterator<char>(inStream), istreambuf_iterator<char>() };
+    //ifstream inStream;
+    //inStream.open(filename.c_str());
+    //inStream.seekg(0, ios::beg);
+    //stringstream strStream;
+    //strStream << inStream.rdbuf();
+    //string file = strStream.str();
+    //string line, file;
+    //do
+    //{
+    //    getline(inStream, line);
+    //    file += line + '\n';
+    //}while(!inStream.eof());
+    /*string file, line;
+    file = "";
+    do
+    {
+        getline(inStream, line);
+        file += line;
+        //file += '\n';
+    }while(!inStream.eof());*/
+    //return file;
 }
 
 /*******************************************************************
@@ -466,9 +493,9 @@ void ChatClient::GetInput(string& input)
                 break;
             }
             input += inputChar;
-            pthread_mutex_lock(&promptCheckLock);
+            pthread_mutex_lock(&displayLock);
             currentInput += inputChar;
-            pthread_mutex_unlock(&promptCheckLock);
+            pthread_mutex_unlock(&displayLock);
         }
     }
 }
@@ -648,7 +675,7 @@ string ChatClient::ReceiveFromServer()
             DisplayMsg("ERROR: could not receive from server");
             return "";
         }
-        currentMsg += string(msg);
+        currentMsg += string(msg, numBytes);
     } while(msg[numBytes-1] != MSG_END);
 
     return currentMsg;
@@ -736,6 +763,8 @@ void ChatClient::DisplayMsg(string msg, bool newline)
         printf("\n");
         fflush(stdout);
         printf("%s", prompt.c_str());
+        fflush(stdout);
+        printf("%s", currentInput.c_str());
         fflush(stdout);
         /*int length = prompt.length() + currentInput.length() + 1;
         while(--length >= 0)

@@ -15,7 +15,9 @@ SERVER_TARGET	= ChatServer
 CLIENT_TARGET	= ChatClient
 
 all		: $(CLIENT_TARGET) $(SERVER_TARGET)
+
 client		: $(CLIENT_TARGET)
+
 server		: $(SERVER_TARGET)
 
 $(CLIENT_TARGET): $(CLIENT_OBJ)
@@ -25,7 +27,7 @@ $(SERVER_TARGET): $(SERVER_OBJ)
 		g++ $(LINK) $(FLAGS) -o $@ $(SERVER_OBJ)
 			
 .cpp.o		:
-		g++ $(FLAGS) -c $< -o $@
+		g++ $(FLAGS) $(LINK) -c $< -o $@
 
 .PHONY		: clean
 

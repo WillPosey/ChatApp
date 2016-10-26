@@ -292,7 +292,7 @@ string ChatServer::ReceiveFromClient(int clientSocket, string username)
             DisplayMsg("ERROR: could not receive from [" + username + "]");
             return "";
         }
-        currentMsg += string(msg);
+        currentMsg += string(msg, numBytes);
     } while(msg[numBytes-1] != MSG_END);
 
     return currentMsg;
@@ -529,6 +529,7 @@ string ChatServer::GetFile(string msg)
 {
     int start = msg.find(MSG_TAG)+1;
     start = msg.find(MSG_TAG, start)+1;
+    cout << "file: " << msg.substr(start, msg.length()-start-1) << endl;
     return msg.substr(start, msg.length()-start-1);
 }
 
