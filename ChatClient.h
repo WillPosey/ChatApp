@@ -10,6 +10,7 @@
 #define CHAT_CLIENT_H
 
 #include <thread>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -33,7 +34,6 @@ class ChatClient
 {
 public:
     ChatClient(char* clientUsername, char* port);
-    ~ChatClient();
 
     void StartClient();
 
@@ -92,12 +92,10 @@ private:
     vector<string> otherUsers;
 
     bool clientExiting, serverShutdown;
-    pthread_mutex_t displayLock, promptCheckLock;
+    mutex displayLock, promptCheckLock;
 
     thread SendThread;
-    pthread_t send_t;
     thread RecvThread;
-    pthread_t recv_t;
 
     int socket_fd;
     sockaddr_in serverAddr;

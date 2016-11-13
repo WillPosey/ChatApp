@@ -11,14 +11,14 @@ SERVER_SRC	= ChatServer.cpp
 CLIENT_SRC	= ChatClient.cpp
 SERVER_OBJ	= $(SERVER_SRC:.cpp=.o)
 CLIENT_OBJ	= $(CLIENT_SRC:.cpp=.o)
-SERVER_TARGET	= ChatServer
-CLIENT_TARGET	= ChatClient
+SERVER_TARGET	= server
+CLIENT_TARGET	= client
 
 all		: $(CLIENT_TARGET) $(SERVER_TARGET)
 
-client		: $(CLIENT_TARGET)
+_client		: $(CLIENT_TARGET)
 
-server		: $(SERVER_TARGET)
+_server		: $(SERVER_TARGET)
 
 $(CLIENT_TARGET): $(CLIENT_OBJ)
 		g++ $(LINK) $(FLAGS) -o $@ $(CLIENT_OBJ)
@@ -32,10 +32,10 @@ $(SERVER_TARGET): $(SERVER_OBJ)
 .PHONY		: clean
 
 client_clean	:
-		rm -f $(CLIENT_OBJ) ChatClient
+		rm -f $(CLIENT_OBJ) client
 
 server_clean	:
-		rm -f $(SERVER_OBJ) ChatServer
+		rm -f $(SERVER_OBJ) server
 
 clean 		: 
-		rm -f *.o ChatServer ChatClient
+		rm -f *.o server client

@@ -39,8 +39,6 @@ ChatServer::ChatServer(char* port)
     signalDetected = 0;
     signal(SIGINT, signalHandler);
     listenSocket = -1;
-    pthread_mutex_init(&updateLock, NULL);
-    pthread_mutex_init(&displayLock, NULL);
 
     struct addrinfo hints, *results = NULL, *resPtr = NULL;
 
@@ -77,8 +75,6 @@ ChatServer::ChatServer(char* port)
 ChatServer::~ChatServer()
 {
     listenSocket = -1;
-    pthread_mutex_destroy(&updateLock);
-    pthread_mutex_destroy(&displayLock);
 }
 
 /*******************************************************************
@@ -256,6 +252,7 @@ bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
     send(newSocket, nameRequest.c_str(), nameRequest.length(), 0);
     newUsername = ReceiveFromClient(newSocket, "connecting user");
     newUsername.pop_back();
+
     if(UsernameAvailable(newUsername))
     {
         send(newSocket, otherUsers.c_str(), otherUsers.length(), 0);
@@ -305,9 +302,10 @@ string ChatServer::ReceiveFromClient(int clientSocket, string username)
  *******************************************************************/
 void ChatServer::SendToClient(string username, string msg)
 {
-    pthread_mutex_lock(&updateLock);
+    updateLock.lock();
     int socket_fd = clientSockets[username];
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
+
     send(socket_fd, msg.c_str(), msg.length(), 0);
 }
 
@@ -321,9 +319,9 @@ void ChatServer::Broadcast(string sender, string msg)
     vector<string>::iterator it;
     vector<string>tempUsernames;
 
-    pthread_mutex_lock(&updateLock);
+    updateLock.lock();
     tempUsernames = usernames;
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
 
     for(it = tempUsernames.begin(); it != tempUsernames.end(); it++)
         if(sender.compare(*it) != 0)
@@ -340,9 +338,9 @@ void ChatServer::Blockcast(string sender, string blockedUser, string msg)
     vector<string>::iterator it;
     vector<string>tempUsernames;
 
-    pthread_mutex_lock(&updateLock);
+    updateLock.lock();
     tempUsernames = usernames;
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
 
     for(it = tempUsernames.begin(); it != tempUsernames.end(); it++)
         if(blockedUser.compare(*it) != 0 && sender.compare(*it) != 0)
@@ -394,10 +392,12 @@ void ChatServer::ServerShutdown()
 bool ChatServer::UsernameAvailable(string newUser)
 {
     bool available = true;
-    pthread_mutex_lock(&updateLock);
+
+    updateLock.lock();
     if(find(usernames.begin(), usernames.end(), newUser) != usernames.end())
         available = false;
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
+
     return available;
 }
 
@@ -408,10 +408,10 @@ bool ChatServer::UsernameAvailable(string newUser)
  *******************************************************************/
 void ChatServer::AddNewUser(string newUser, int socket_fd)
 {
-    pthread_mutex_lock(&updateLock);
+    updateLock.lock();
     usernames.push_back(newUser);
     clientSockets.insert(pair<string,int>(newUser, socket_fd));
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
 }
 
 /*******************************************************************
@@ -424,12 +424,12 @@ void ChatServer::RemoveUser(string username)
     vector<string>::iterator usernameIt;
     map<string,int>::iterator socketIt;
 
-    pthread_mutex_lock(&updateLock);
+    updateLock.lock();
     usernameIt = find(usernames.begin(), usernames.end(), username);
     usernames.erase(usernameIt);
     socketIt = clientSockets.find(username);
     clientSockets.erase(socketIt);
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
 }
 
 /*******************************************************************
@@ -441,14 +441,16 @@ string ChatServer::CreateAllUsersMsg()
 {
     string allUsers = string(OTHER_USERS);
     vector<string>::iterator userIterator;
-    pthread_mutex_lock(&updateLock);
+
+    updateLock.lock();
     for(userIterator = usernames.begin(); userIterator != usernames.end(); userIterator++)
     {
         allUsers += USER_TAG;
         allUsers += *userIterator;
     }
     allUsers += MSG_END;
-    pthread_mutex_unlock(&updateLock);
+    updateLock.unlock();
+
     return allUsers;
 }
 
@@ -459,9 +461,9 @@ string ChatServer::CreateAllUsersMsg()
  *******************************************************************/
 void ChatServer::DisplayMsg(string msg)
 {
-    pthread_mutex_lock(&displayLock);
+    displayLock.lock();
     cout << msg << endl;
-    pthread_mutex_unlock(&displayLock);
+    displayLock.unlock();
 }
 
 /*******************************************************************
@@ -529,7 +531,6 @@ string ChatServer::GetFile(string msg)
 {
     int start = msg.find(MSG_TAG)+1;
     start = msg.find(MSG_TAG, start)+1;
-    cout << "file: " << msg.substr(start, msg.length()-start-1) << endl;
     return msg.substr(start, msg.length()-start-1);
 }
 

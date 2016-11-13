@@ -30,6 +30,7 @@ int main(int argc, char** argv)
     }
     else
         cout << "Please specify username and server port" << endl;
+
     return 0;
 }
 
@@ -45,23 +46,9 @@ ChatClient::ChatClient(char* clientUsername, char* port)
     serverPortStr = string(port);
     serverPort = atoi(port);
     clientExiting = serverShutdown = promptDisplayed = false;
-    pthread_mutex_init(&displayLock, NULL);
-    pthread_mutex_init(&promptCheckLock, NULL);
     signalDetected = 0;
     signal(SIGINT, signalHandler);
 }
-
-/*******************************************************************
- *
- *      ChatClient Destructor
- *
- *******************************************************************/
-ChatClient::~ChatClient()
-{
-    pthread_mutex_destroy(&displayLock);
-    pthread_mutex_destroy(&promptCheckLock);
-}
-
 
 /*******************************************************************
  *
@@ -70,9 +57,9 @@ ChatClient::~ChatClient()
  *******************************************************************/
 void ChatClient::SetPromptDisplayed(bool val)
 {
-    pthread_mutex_lock(&promptCheckLock);
+    promptCheckLock.lock();
     promptDisplayed = val;
-    pthread_mutex_unlock(&promptCheckLock);
+    promptCheckLock.unlock();
 }
 
 /*******************************************************************
@@ -82,9 +69,10 @@ void ChatClient::SetPromptDisplayed(bool val)
  *******************************************************************/
 bool ChatClient::CheckPromptDisplayed()
 {
-    pthread_mutex_lock(&promptCheckLock);
+    promptCheckLock.lock();
     bool retVal = promptDisplayed;
-    pthread_mutex_unlock(&promptCheckLock);
+    promptCheckLock.unlock();
+
     return retVal;
 }
 /*******************************************************************
@@ -166,6 +154,7 @@ string ChatClient::GetDestination(string msg)
     int start = msg.find(MSG_TAG)+1;
     start = msg.find(MSG_TAG, start)+2;
     int finish = msg.length();
+
     return msg.substr(start, finish-start);
 }
 
@@ -180,6 +169,7 @@ string ChatClient::GetSource(string msg)
     int finish = msg.find(MSG_TAG);
     if(finish == string::npos)
         finish = msg.length()-1;
+
     return msg.substr(start, finish-start);
 }
 
@@ -192,6 +182,7 @@ string ChatClient::GetFilename(string msg)
 {
     int start = msg.find(MSG_TAG)+1;
     int finish = msg.find(MSG_TAG, start);
+
     return msg.substr(start, finish-start);
 }
 
@@ -204,6 +195,7 @@ string ChatClient::GetMsg(string msg)
 {
     int start = msg.find(MSG_TAG)+1;
     int finish = msg.find(MSG_TAG, start);
+
     return msg.substr(start, finish-start);
 }
 
@@ -216,6 +208,7 @@ string ChatClient::GetFile(string msg)
 {
     int start = msg.find(MSG_TAG)+1;
     start = msg.find(MSG_TAG, start)+1;
+
     return msg.substr(start, msg.length()-start-1);
 }
 
@@ -227,7 +220,6 @@ string ChatClient::GetFile(string msg)
 void ChatClient::CreateFile(string filename, string file)
 {
     ofstream outStream(basename(filename.c_str()));
-    //outStream << file;
     for(int i=0; i<file.length(); i++)
         outStream.write(&file[i], 1);
     outStream.close();
@@ -248,30 +240,6 @@ string ChatClient::ReadFile(string filename)
     inStream.read(&bytes[0], fileSize);
 
     return string(&bytes[0], fileSize);
-
-    //ifstream inStream { filename.c_str() };
-    //string file_contents { istreambuf_iterator<char>(inStream), istreambuf_iterator<char>() };
-    //ifstream inStream;
-    //inStream.open(filename.c_str());
-    //inStream.seekg(0, ios::beg);
-    //stringstream strStream;
-    //strStream << inStream.rdbuf();
-    //string file = strStream.str();
-    //string line, file;
-    //do
-    //{
-    //    getline(inStream, line);
-    //    file += line + '\n';
-    //}while(!inStream.eof());
-    /*string file, line;
-    file = "";
-    do
-    {
-        getline(inStream, line);
-        file += line;
-        //file += '\n';
-    }while(!inStream.eof());*/
-    //return file;
 }
 
 /*******************************************************************
@@ -283,10 +251,10 @@ void ChatClient::StartClient()
 {
     if(!ConnectToServer())
         return;
+
     SendThread = thread(&ChatClient::ClientSend, this);
     RecvThread = thread(&ChatClient::ClientRecv, this);
-    send_t = SendThread.native_handle();
-    recv_t = RecvThread.native_handle();
+
     WaitForExit();
 }
 
@@ -357,7 +325,7 @@ bool ChatClient::ConnectToServer()
         if(CompareTag(recvTag, OTHER_USERS))
         {
             DisplayMsg("Connected to Server on Port " + serverPortStr);
-            DisplayMsg("Other Users: ", false);
+            DisplayMsg("Other Users Currently Connected: ", false);
             while(GetNextNeighbor(recvMsg, neighborName))
             {
                 DisplayMsg(neighborName + " ", false);
@@ -393,6 +361,7 @@ bool ChatClient::GetNextNeighbor(string neighbors, string& name)
     if(finish == string::npos)
         finish = neighbors.length()-1;
     name = neighbors.substr(start, finish-start);
+
     return true;
 }
 
@@ -418,6 +387,8 @@ void ChatClient::WaitForExit()
 {
     SendThread.join();
     RecvThread.join();
+
+    SetPromptDisplayed(false);
 
     if(serverShutdown)
         DisplayMsg("Server Shutdown");
@@ -493,9 +464,9 @@ void ChatClient::GetInput(string& input)
                 break;
             }
             input += inputChar;
-            pthread_mutex_lock(&displayLock);
+            displayLock.lock();
             currentInput += inputChar;
-            pthread_mutex_unlock(&displayLock);
+            displayLock.unlock();
         }
     }
 }
@@ -744,7 +715,7 @@ void ChatClient::ParseMessage(string input, string &display)
  *******************************************************************/
 void ChatClient::DisplayMsg(string msg, bool newline)
 {
-    pthread_mutex_lock(&displayLock);
+    displayLock.lock();
     bool insertLineAbove = CheckPromptDisplayed();
     if(insertLineAbove)
     {
@@ -755,7 +726,7 @@ void ChatClient::DisplayMsg(string msg, bool newline)
         // 3) display prompt and input again on line x+1
         // but
         // 3) displays prompt on line x+2?
-        pthread_mutex_lock(&promptCheckLock);
+        promptCheckLock.lock();
         printf("\r\033[K");
         fflush(stdout);
         printf("\r%s", msg.c_str());
@@ -772,7 +743,7 @@ void ChatClient::DisplayMsg(string msg, bool newline)
             printf("\033[1C");
             fflush(stdout);
         }*/
-        pthread_mutex_unlock(&promptCheckLock);
+        promptCheckLock.unlock();
     }
     else
     {
@@ -784,7 +755,7 @@ void ChatClient::DisplayMsg(string msg, bool newline)
     if(newline)
         cout << endl;*/
     flush(cout);
-    pthread_mutex_unlock(&displayLock);
+    displayLock.unlock();
 }
 
 /*******************************************************************
@@ -794,9 +765,9 @@ void ChatClient::DisplayMsg(string msg, bool newline)
  *******************************************************************/
 void ChatClient::DisplayPrompt()
 {
-    pthread_mutex_lock(&displayLock);
+    displayLock.lock();
     cout << prompt;
     flush(cout);
     SetPromptDisplayed(true);
-    pthread_mutex_unlock(&displayLock);
+    displayLock.unlock();
 }

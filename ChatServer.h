@@ -12,6 +12,7 @@
 #include <vector>
 #include <map>
 #include <thread>
+#include <mutex>
 #include <iostream>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -69,7 +70,7 @@ private:
     bool setupSuccess;
     string serverPort;
 
-    pthread_mutex_t updateLock, displayLock;
+    mutex updateLock, displayLock;
 
     vector<string> usernames;
     map<string, int> clientSockets;
