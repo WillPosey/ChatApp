@@ -7,12 +7,14 @@
  *******************************************************************/
 #include "MessageDefs.h"
 #include "ChatClient.h"
+
 #include <cstdlib>
-#include <strings.h>
-#include <sys/stat.h>
 #include <cstring>
 #include <algorithm>
 #include <sstream>
+#include <termios.h>
+#include <strings.h>
+#include <sys/stat.h>
 
 using namespace std;
 
@@ -436,12 +438,19 @@ void ChatClient::ClientSend()
 void ChatClient::GetInput(string& input)
 {
     fd_set fdSet;
+    static struct termios oldt, newt;
     struct timeval timeout;
     char inputChar = 0;
+    int currentLength = 0;
 
     input = "";
     currentInput = "";
     DisplayPrompt();
+
+    tcgetattr( STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr( STDIN_FILENO, TCSANOW, &newt);
 
     while(1)
     {
@@ -460,17 +469,53 @@ void ChatClient::GetInput(string& input)
         if(FD_ISSET(STDIN_FILENO, &fdSet))
         {
             read(STDIN_FILENO, &inputChar, 1);
+            /* Newline; input complete */
             if(inputChar == '\n')
             {
+                cout << endl;
+                flush(cout);
                 SetPromptDisplayed(false);
                 break;
             }
-            input += inputChar;
-            displayLock.lock();
-            currentInput += inputChar;
-            displayLock.unlock();
+            /* Escape sequence; consume next 2 chars */
+            else if(inputChar == 27)
+            {
+                read(STDIN_FILENO, &inputChar, 1);
+                read(STDIN_FILENO, &inputChar, 1);
+                continue;
+            }
+            /* Backspace */
+            else if(inputChar == 0x7f)
+            {
+                if(currentLength > 0)
+                {
+                    currentLength--;
+                    printf("\b");
+                    printf(" ");
+                    printf("\b");
+                    flush(cout);
+                    input = input.substr(0, input.length()-1);
+                    displayLock.lock();
+                    currentInput = currentInput.substr(0, currentInput.length()-1);
+                    displayLock.unlock();
+                    continue;
+                }
+                continue;
+            }
+            /* Grab char; echo to screen */
+            else
+            {
+                currentLength++;
+                input += inputChar;
+                displayLock.lock();
+                currentInput += inputChar;
+                cout << inputChar;
+                flush(cout);
+                displayLock.unlock();
+            }
         }
     }
+    tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
 }
 
 /*******************************************************************
@@ -506,7 +551,7 @@ bool ChatClient::ParseInput(string& input, string& output)
         filename = GetFilename(input);
         if(!FileExists(filename))
         {
-            DisplayMsg("\nError: file [" + filename + "] does not exist");
+            DisplayMsg("Error: file [" + filename + "] does not exist");
             return false;
         }
         filename = basename(filename.c_str());
@@ -522,7 +567,7 @@ bool ChatClient::ParseInput(string& input, string& output)
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
-            DisplayMsg("\nError: user [" + destination + "] not found");
+            DisplayMsg("Error: user [" + destination + "] not found");
             return false;
         }
         msg = GetMsg(input);
@@ -537,13 +582,13 @@ bool ChatClient::ParseInput(string& input, string& output)
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
-            DisplayMsg("\nError: user [" + destination + "] not found");
+            DisplayMsg("Error: user [" + destination + "] not found");
             return false;
         }
         filename = GetFilename(input);
         if(!FileExists(filename))
         {
-            DisplayMsg("\nError: file [" + filename + "] does not exist");
+            DisplayMsg("Error: file [" + filename + "] does not exist");
             return false;
         }
         filename = basename(filename.c_str());
@@ -559,7 +604,7 @@ bool ChatClient::ParseInput(string& input, string& output)
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
-            DisplayMsg("\nError: user [" + destination + "] not found");
+            DisplayMsg("Error: user [" + destination + "] not found");
             return false;
         }
         msg = GetMsg(input);
@@ -574,13 +619,13 @@ bool ChatClient::ParseInput(string& input, string& output)
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
-            DisplayMsg("\nError: user [" + destination + "] not found");
+            DisplayMsg("Error: user [" + destination + "] not found");
             return false;
         }
         filename = GetFilename(input);
         if(!FileExists(filename))
         {
-            DisplayMsg("\nError: file [" + filename + "] does not exist");
+            DisplayMsg("Error: file [" + filename + "] does not exist");
             return false;
         }
         filename = basename(filename.c_str());
@@ -589,7 +634,7 @@ bool ChatClient::ParseInput(string& input, string& output)
         return true;
     }
 
-    DisplayMsg("\nError: Command Not Found");
+    DisplayMsg("Error: Command Not Found");
     return false;
 
 }
@@ -616,6 +661,7 @@ void ChatClient::ClientRecv()
 
     while(1)
     {
+        display = "";
         pthread_testcancel();
         recvMsg = ReceiveFromServer();
         ParseMessage(recvMsg, display);
@@ -679,7 +725,7 @@ void ChatClient::ParseMessage(string input, string &display)
     if(CompareTag(tag, USER_CONNECT))
     {
         AddNeighbor(source);
-        DisplayMsg(source + " connnected");
+        display += source + " connnected";
         return;
     }
 
@@ -687,7 +733,7 @@ void ChatClient::ParseMessage(string input, string &display)
     if(CompareTag(tag, USER_DISCONNECT))
     {
         RemoveNeighbor(source);
-        DisplayMsg(source + " disconnnected");
+        display += source + " disconnnected";
         return;
     }
 
@@ -695,7 +741,7 @@ void ChatClient::ParseMessage(string input, string &display)
     if(CompareTag(tag, MSG_RCV))
     {
         msg = GetMsg(input);
-        DisplayMsg(source + ": " + msg);
+        display += source + ": " + msg;
         return;
     }
 
@@ -705,7 +751,7 @@ void ChatClient::ParseMessage(string input, string &display)
         filename = GetFilename(input);
         file = GetFile(input);
         CreateFile(filename, file);
-        DisplayMsg("File: [" + filename + "] sent by " + source);
+        display += "File: [" + filename + "] sent by " + source;
         return;
     }
 }
@@ -719,44 +765,28 @@ void ChatClient::DisplayMsg(string msg, bool newline)
 {
     displayLock.lock();
     bool insertLineAbove = CheckPromptDisplayed();
+
+    /* Carriage return and clear line, then display message */
+    /* Redisplay prompt and current user input on next line */
     if(insertLineAbove)
     {
-        // not printing the prompt on line after current line?!
-        // should go:
-        // 1) prompt on line x
-        // 2) display output on line x
-        // 3) display prompt and input again on line x+1
-        // but
-        // 3) displays prompt on line x+2?
         promptCheckLock.lock();
-        printf("\r\033[K");
+        printf("\r%s\033[K\n", msg.c_str());
         fflush(stdout);
-        printf("\r%s", msg.c_str());
+        printf("%s%s", prompt.c_str(), currentInput.c_str());
         fflush(stdout);
-        printf("\n");
-        fflush(stdout);
-        printf("%s", prompt.c_str());
-        fflush(stdout);
-        printf("%s", currentInput.c_str());
-        fflush(stdout);
-        /*int length = prompt.length() + currentInput.length() + 1;
-        while(--length >= 0)
-        {
-            printf("\033[1C");
-            fflush(stdout);
-        }*/
         promptCheckLock.unlock();
     }
+    /* Prompt is not displayed, just display message */
     else
     {
         cout << msg;
         if(newline)
             cout << endl;
+        else
+            flush(cout);
     }
-    /*cout << msg;
-    if(newline)
-        cout << endl;*/
-    flush(cout);
+
     displayLock.unlock();
 }
 
