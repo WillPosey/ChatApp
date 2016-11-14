@@ -254,6 +254,8 @@ void ChatClient::StartClient()
 
     SendThread = thread(&ChatClient::ClientSend, this);
     RecvThread = thread(&ChatClient::ClientRecv, this);
+    send_t = SendThread.native_handle();
+    recv_t = RecvThread.native_handle();
 
     WaitForExit();
 }

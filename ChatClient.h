@@ -95,7 +95,9 @@ private:
     mutex displayLock, promptCheckLock;
 
     thread SendThread;
+    pthread_t send_t;
     thread RecvThread;
+    pthread_t recv_t;
 
     int socket_fd;
     sockaddr_in serverAddr;
