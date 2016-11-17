@@ -12,7 +12,7 @@
 #include <cstring>
 #include <algorithm>
 #include <sstream>
-#include <termios.h>
+#include <cerrno>
 #include <strings.h>
 #include <sys/stat.h>
 
@@ -50,198 +50,6 @@ ChatClient::ChatClient(char* clientUsername, char* port)
     clientExiting = serverShutdown = promptDisplayed = false;
     signalDetected = 0;
     signal(SIGINT, signalHandler);
-}
-
-/*******************************************************************
- *
- *      ChatClient::SetPromptDisplayed
- *
- *******************************************************************/
-void ChatClient::SetPromptDisplayed(bool val)
-{
-    promptCheckLock.lock();
-    promptDisplayed = val;
-    promptCheckLock.unlock();
-}
-
-/*******************************************************************
- *
- *      ChatClient::CheckPromptDisplayed
- *
- *******************************************************************/
-bool ChatClient::CheckPromptDisplayed()
-{
-    promptCheckLock.lock();
-    bool retVal = promptDisplayed;
-    promptCheckLock.unlock();
-
-    return retVal;
-}
-/*******************************************************************
- *
- *      ChatClient::GetTag
- *
- *******************************************************************/
-string ChatClient::GetTag(string msg)
-{
-    return msg.substr(0,2);
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetCmd
- *
- *******************************************************************/
-string ChatClient::GetCmd(string input)
-{
-    int finish = input.find(MSG_TAG);
-    if(finish == string::npos)
-        return input;
-    return input.substr(0, finish);
-}
-
-/*******************************************************************
- *
- *      ChatClient::CompareTag
- *
- *******************************************************************/
-bool ChatClient::CompareTag(string tag, string checkTag)
-{
-    return (tag.compare(checkTag) == 0);
-}
-
-/*******************************************************************
- *
- *      ChatClient::CompareCmd
- *
- *******************************************************************/
-bool ChatClient::CompareCmd(string cmd, string checkCmd)
-{
-    return (cmd.compare(checkCmd) == 0);
-}
-
-/*******************************************************************
- *
- *      ChatClient::UserExists
- *
- *******************************************************************/
-bool ChatClient::UserExists(string user)
-{
-    vector<string>::iterator userIterator;
-
-    for(userIterator = otherUsers.begin(); userIterator != otherUsers.end(); userIterator++)
-        if(user.compare(*userIterator) == 0)
-            return true;
-    return false;
-}
-
-/*******************************************************************
- *
- *      ChatClient::FileExists
- *
- *******************************************************************/
-bool ChatClient::FileExists(string filename)
-{
-    struct stat buffer;
-    return (stat (filename.c_str(), &buffer) == 0);
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetDestination
- *
- *******************************************************************/
-string ChatClient::GetDestination(string msg)
-{
-    int start = msg.find(MSG_TAG)+1;
-    start = msg.find(MSG_TAG, start)+2;
-    int finish = msg.length();
-
-    return msg.substr(start, finish-start);
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetSource
- *
- *******************************************************************/
-string ChatClient::GetSource(string msg)
-{
-    int start = msg.find(USER_TAG)+1;
-    int finish = msg.find(MSG_TAG);
-    if(finish == string::npos)
-        finish = msg.length()-1;
-
-    return msg.substr(start, finish-start);
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetFilename
- *
- *******************************************************************/
-string ChatClient::GetFilename(string msg)
-{
-    int start = msg.find(MSG_TAG)+1;
-    int finish = msg.find(MSG_TAG, start);
-
-    return msg.substr(start, finish-start);
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetMsg
- *
- *******************************************************************/
-string ChatClient::GetMsg(string msg)
-{
-    int start = msg.find(MSG_TAG)+1;
-    int finish = msg.find(MSG_TAG, start);
-
-    return msg.substr(start, finish-start);
-}
-
-/*******************************************************************
- *
- *      ChatClient::GetFile
- *
- *******************************************************************/
-string ChatClient::GetFile(string msg)
-{
-    int start = msg.find(MSG_TAG)+1;
-    start = msg.find(MSG_TAG, start)+1;
-
-    return msg.substr(start, msg.length()-start-1);
-}
-
-/*******************************************************************
- *
- *      ChatClient::CreateFile
- *
- *******************************************************************/
-void ChatClient::CreateFile(string filename, string file)
-{
-    ofstream outStream(basename(filename.c_str()));
-    for(int i=0; i<file.length(); i++)
-        outStream.write(&file[i], 1);
-    outStream.close();
-}
-
-/*******************************************************************
- *
- *      ChatClient::ReadFile
- *
- *******************************************************************/
-string ChatClient::ReadFile(string filename)
-{
-    ifstream inStream (filename.c_str(), ios::in | ios::ate);
-    ifstream::pos_type fileSize = inStream.tellg();
-    inStream.seekg(0, ios::beg);
-
-    vector<char> bytes(fileSize);
-    inStream.read(&bytes[0], fileSize);
-
-    return string(&bytes[0], fileSize);
 }
 
 /*******************************************************************
@@ -349,6 +157,37 @@ bool ChatClient::ConnectToServer()
 
 /*******************************************************************
  *
+ *      ChatClient::WaitForExit
+ *
+ *******************************************************************/
+void ChatClient::WaitForExit()
+{
+    SendThread.join();
+    RecvThread.join();
+
+    SetPromptDisplayed(false);
+
+    if(serverShutdown)
+        DisplayMsg("Server Shutdown");
+    else if(clientExiting)
+        DisplayMsg("Client Exiting");
+    else
+        DisplayMsg("Error Occured, Client Exiting");
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::TerminateThreads
+ *
+ *******************************************************************/
+void ChatClient::TerminateThreads()
+{
+    pthread_cancel(send_t);
+    pthread_cancel(recv_t);
+}
+
+/*******************************************************************
+ *
  *      ChatClient::GetNextNeighbor
  *
  *******************************************************************/
@@ -371,6 +210,16 @@ bool ChatClient::GetNextNeighbor(string neighbors, string& name)
 
 /*******************************************************************
  *
+ *      ChatClient::AddNeighbor
+ *
+ *******************************************************************/
+void ChatClient::AddNeighbor(string name)
+{
+    otherUsers.push_back(name);
+}
+
+/*******************************************************************
+ *
  *      ChatClient::RemoveNeighbor
  *
  *******************************************************************/
@@ -380,26 +229,6 @@ void ChatClient::RemoveNeighbor(string name)
 
     usernameIt = find(otherUsers.begin(), otherUsers.end(), name);
     otherUsers.erase(usernameIt);
-}
-
-/*******************************************************************
- *
- *      ChatClient::WaitForExit
- *
- *******************************************************************/
-void ChatClient::WaitForExit()
-{
-    SendThread.join();
-    RecvThread.join();
-
-    SetPromptDisplayed(false);
-
-    if(serverShutdown)
-        DisplayMsg("Server Shutdown");
-    else if(clientExiting)
-        DisplayMsg("Client Exiting");
-    else
-        DisplayMsg("Error Occured, Client Exiting");
 }
 
 /*******************************************************************
@@ -452,6 +281,8 @@ void ChatClient::GetInput(string& input)
     newt.c_lflag &= ~(ICANON | ECHO);
     tcsetattr( STDIN_FILENO, TCSANOW, &newt);
 
+    pthread_cleanup_push(restoreTerminal, (void*) &oldt);
+
     while(1)
     {
         FD_ZERO (&fdSet);
@@ -490,9 +321,7 @@ void ChatClient::GetInput(string& input)
                 if(currentLength > 0)
                 {
                     currentLength--;
-                    printf("\b");
-                    printf(" ");
-                    printf("\b");
+                    cout << "\b \b";
                     flush(cout);
                     input = input.substr(0, input.length()-1);
                     displayLock.lock();
@@ -516,6 +345,7 @@ void ChatClient::GetInput(string& input)
         }
     }
     tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
+    pthread_cleanup_pop(1);
 }
 
 /*******************************************************************
@@ -529,7 +359,7 @@ bool ChatClient::ParseInput(string& input, string& output)
 
     cmd = GetCmd(input);
 
-    // exit
+    /* exit */
     if(CompareCmd(cmd, EXIT_CMD))
     {
         clientExiting = true;
@@ -537,33 +367,65 @@ bool ChatClient::ParseInput(string& input, string& output)
         return true;
     }
 
-    // broadcast message
+    /* make sure message or filename is in quotations */
+    int quotes = input.find('"');
+    bool bothQuotes = true;
+    if(!(quotes == string::npos))
+    {
+        quotes = input.find('"', quotes+1);
+        if(quotes == string::npos)
+            bothQuotes = false;
+    }
+    else
+        bothQuotes = false;
+    if(!bothQuotes)
+    {
+        DisplayMsg("Error: messages and filenames must be in quotations");
+        return false;
+    }
+
+    /* broadcast message */
     if(CompareCmd(cmd, BRDCST_CMD))
     {
+        if(input.length() != (input.find_last_of(MSG_TAG)+1))
+        {
+            DisplayMsg("Error: username can't be specified in broadcast");
+            return false;
+        }
         msg = GetMsg(input);
         output = string(BRDCST_MSG) + MSG_TAG + msg + MSG_TAG + MSG_END;
         return true;
     }
 
-    // broadcast file
+    /* broadcast file */
     if(CompareCmd(cmd, BRDCST_FILE_CMD))
     {
+        if(input.length() != (input.find_last_of(MSG_TAG)+1))
+        {
+            DisplayMsg("Error: username can't be specified in broadcast");
+            return false;
+        }
         filename = GetFilename(input);
         if(!FileExists(filename))
         {
             DisplayMsg("Error: file [" + filename + "] does not exist");
             return false;
         }
-        filename = basename(filename.c_str());
         file = ReadFile(filename);
+        filename = basename(filename.c_str());
         output = string(BRDCST_FILE) + MSG_TAG + filename + MSG_TAG + file + MSG_END;
         return true;
     }
 
-    // send message
+    /* send message */
     if(CompareCmd(cmd, SEND_CMD))
     {
-        // check if destination exists
+        if(input.length() == (input.find_last_of(MSG_TAG)+1))
+        {
+            DisplayMsg("Error: must specify username");
+            return false;
+        }
+        /* check if destination exists */
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
@@ -575,10 +437,15 @@ bool ChatClient::ParseInput(string& input, string& output)
         return true;
     }
 
-    // send file
+    /* send file */
     if(CompareCmd(cmd, SEND_FILE_CMD))
     {
-        // check if destination exists
+        if(input.length() == (input.find_last_of(MSG_TAG)+1))
+        {
+            DisplayMsg("Error: must specify username");
+            return false;
+        }
+        /* check if destination exists */
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
@@ -591,16 +458,21 @@ bool ChatClient::ParseInput(string& input, string& output)
             DisplayMsg("Error: file [" + filename + "] does not exist");
             return false;
         }
-        filename = basename(filename.c_str());
         file = ReadFile(filename);
+        filename = basename(filename.c_str());
         output = string(SEND_FILE) + USER_TAG + destination + MSG_TAG + filename + MSG_TAG + file + MSG_END;
         return true;
     }
 
-    // blockcast message
+    /* blockcast message */
     if(CompareCmd(cmd, BLKCST_CMD))
     {
-        // check if destination exists
+        if(input.length() == (input.find_last_of(MSG_TAG)+1))
+        {
+            DisplayMsg("Error: must specify username");
+            return false;
+        }
+        /* check if destination exists */
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
@@ -612,10 +484,15 @@ bool ChatClient::ParseInput(string& input, string& output)
         return true;
     }
 
-    // blockcast file
+    /* blockcast file */
     if(CompareCmd(cmd, BLKCST_FILE_CMD))
     {
-        // check if destination exists
+        if(input.length() == (input.find_last_of(MSG_TAG)+1))
+        {
+            DisplayMsg("Error: must specify username");
+            return false;
+        }
+        /* check if destination exists */
         destination = GetDestination(input);
         if(!UserExists(destination))
         {
@@ -628,8 +505,8 @@ bool ChatClient::ParseInput(string& input, string& output)
             DisplayMsg("Error: file [" + filename + "] does not exist");
             return false;
         }
-        filename = basename(filename.c_str());
         file = ReadFile(filename);
+        filename = basename(filename.c_str());
         output = string(BLKCST_FILE) + USER_TAG + destination + MSG_TAG + filename + MSG_TAG + file + MSG_END;
         return true;
     }
@@ -758,6 +635,202 @@ void ChatClient::ParseMessage(string input, string &display)
 
 /*******************************************************************
  *
+ *      ChatClient::GetTag
+ *
+ *******************************************************************/
+string ChatClient::GetTag(string msg)
+{
+    return msg.substr(0,2);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetCmd
+ *
+ *******************************************************************/
+string ChatClient::GetCmd(string input)
+{
+    int finish = input.find_first_of(MSG_TAG);
+    if(finish == string::npos)
+        return input;
+    return input.substr(0, finish);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetDestination
+ *
+ *******************************************************************/
+string ChatClient::GetDestination(string msg)
+{
+    int start = msg.find_last_of(MSG_TAG)+2;
+    int finish = msg.length();
+
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetSource
+ *
+ *******************************************************************/
+string ChatClient::GetSource(string msg)
+{
+    int start = msg.find(USER_TAG)+1;
+    int finish = msg.find_first_of(MSG_TAG);
+    if(finish == string::npos)
+        finish = msg.length()-1;
+
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetFilename
+ *
+ *******************************************************************/
+string ChatClient::GetFilename(string msg)
+{
+    int start = msg.find_first_of(MSG_TAG)+1;
+    int finish = msg.find_last_of(MSG_TAG);
+
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetMsg
+ *
+ *******************************************************************/
+string ChatClient::GetMsg(string msg)
+{
+    int start = msg.find_first_of(MSG_TAG)+1;
+    int finish = msg.find_last_of(MSG_TAG);
+
+    return msg.substr(start, finish-start);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::GetFile
+ *
+ *******************************************************************/
+string ChatClient::GetFile(string msg)
+{
+    int start = msg.find_last_of(MSG_TAG)+1;
+
+    return msg.substr(start, msg.length()-start-1);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CreateFile
+ *
+ *******************************************************************/
+void ChatClient::CreateFile(string filename, string file)
+{
+    ofstream outStream(basename(filename.c_str()));
+    if(!outStream)
+    {
+        DisplayMsg("Could not create file [" + filename + "]; " + strerror(errno));
+        return;
+    }
+    for(int i=0; i<file.length(); i++)
+        outStream.write(&file[i], 1);
+    outStream.close();
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::ReadFile
+ *
+ *******************************************************************/
+string ChatClient::ReadFile(string filename)
+{
+    ifstream inStream (filename.c_str(), ios::in | ios::ate);
+    ifstream::pos_type fileSize = inStream.tellg();
+    inStream.seekg(0, ios::beg);
+
+    vector<char> bytes(fileSize);
+    inStream.read(&bytes[0], fileSize);
+
+    return string(&bytes[0], fileSize);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CompareTag
+ *
+ *******************************************************************/
+bool ChatClient::CompareTag(string tag, string checkTag)
+{
+    return (tag.compare(checkTag) == 0);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CompareCmd
+ *
+ *******************************************************************/
+bool ChatClient::CompareCmd(string cmd, string checkCmd)
+{
+    return (cmd.compare(checkCmd) == 0);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::UserExists
+ *
+ *******************************************************************/
+bool ChatClient::UserExists(string user)
+{
+    vector<string>::iterator userIterator;
+
+    for(userIterator = otherUsers.begin(); userIterator != otherUsers.end(); userIterator++)
+        if(user.compare(*userIterator) == 0)
+            return true;
+    return false;
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::FileExists
+ *
+ *******************************************************************/
+bool ChatClient::FileExists(string filename)
+{
+    struct stat buffer;
+    return (stat (filename.c_str(), &buffer) == 0);
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::SetPromptDisplayed
+ *
+ *******************************************************************/
+void ChatClient::SetPromptDisplayed(bool val)
+{
+    promptCheckLock.lock();
+    promptDisplayed = val;
+    promptCheckLock.unlock();
+}
+
+/*******************************************************************
+ *
+ *      ChatClient::CheckPromptDisplayed
+ *
+ *******************************************************************/
+bool ChatClient::CheckPromptDisplayed()
+{
+    promptCheckLock.lock();
+    bool retVal = promptDisplayed;
+    promptCheckLock.unlock();
+
+    return retVal;
+}
+
+/*******************************************************************
+ *
  *      ChatClient::DisplayMsg
  *
  *******************************************************************/
@@ -771,10 +844,10 @@ void ChatClient::DisplayMsg(string msg, bool newline)
     if(insertLineAbove)
     {
         promptCheckLock.lock();
-        printf("\r%s\033[K\n", msg.c_str());
-        fflush(stdout);
-        printf("%s%s", prompt.c_str(), currentInput.c_str());
-        fflush(stdout);
+        cout << "\r" << msg << "\033[K\n";
+        flush(cout);
+        cout << prompt << currentInput;
+        flush(cout);
         promptCheckLock.unlock();
     }
     /* Prompt is not displayed, just display message */

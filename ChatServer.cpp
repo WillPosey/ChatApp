@@ -7,6 +7,7 @@
  *******************************************************************/
 #include "MessageDefs.h"
 #include "ChatServer.h"
+
 #include <cstring>
 #include <algorithm>
 
@@ -65,16 +66,6 @@ ChatServer::ChatServer(char* port)
     setupSuccess = (resPtr!=NULL);
 
     freeaddrinfo(results);
-}
-
-/*******************************************************************
- *
- *      ChatServer Destructor
- *
- *******************************************************************/
-ChatServer::~ChatServer()
-{
-    listenSocket = -1;
 }
 
 /*******************************************************************
@@ -145,6 +136,103 @@ void ChatServer::ListenForConnections()
             initThread->detach();
         }
     }
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::ServerShutdown
+ *
+ *******************************************************************/
+void ChatServer::ServerShutdown()
+{
+    close(listenSocket);
+    DisplayMsg("\nServer Shutting Down, Notifying Clients...");
+    string msg = string(SERVER_SHUTDOWN) + MSG_END;
+    Broadcast(" ", msg);
+    CloseAllSockets();
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::CloseAllSockets
+ *
+ *******************************************************************/
+void ChatServer::CloseAllSockets()
+{
+    vector<string>::iterator it;
+
+    for(it = usernames.begin(); it != usernames.end(); it++)
+        close(clientSockets[*it]);
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::InitializeConnection
+ *
+ *******************************************************************/
+bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
+{
+    string nameRequest = string(USERNAME_REQUEST) + MSG_END;
+    string otherUsers = CreateAllUsersMsg();
+    string invalidName = string(USERNAME_TAKEN) + MSG_END;
+
+    send(newSocket, nameRequest.c_str(), nameRequest.length(), 0);
+    newUsername = ReceiveFromClient(newSocket, "connecting user");
+    newUsername.pop_back();
+
+    if(UsernameAvailable(newUsername))
+    {
+        send(newSocket, otherUsers.c_str(), otherUsers.length(), 0);
+        NewConnection(newUsername);
+        AddNewUser(newUsername, newSocket);
+        DisplayMsg(newUsername + " connected");
+        return true;
+    }
+    else
+    {
+        send(newSocket, invalidName.c_str(), invalidName.length(), 0);
+        close(newSocket);
+        return false;
+    }
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::UsernameAvailable
+ *
+ *******************************************************************/
+bool ChatServer::UsernameAvailable(string newUser)
+{
+    bool available = true;
+
+    updateLock.lock();
+    if(find(usernames.begin(), usernames.end(), newUser) != usernames.end())
+        available = false;
+    updateLock.unlock();
+
+    return available;
+}
+
+/*******************************************************************
+ *
+ *      ChatServer::CreateAllUsersMsg
+ *
+ *******************************************************************/
+string ChatServer::CreateAllUsersMsg()
+{
+    string allUsers = string(OTHER_USERS);
+    vector<string>::iterator userIterator;
+
+    updateLock.lock();
+    for(userIterator = usernames.begin(); userIterator != usernames.end(); userIterator++)
+    {
+        allUsers += USER_TAG;
+        allUsers += *userIterator;
+    }
+    allUsers += MSG_END;
+    updateLock.unlock();
+
+    return allUsers;
 }
 
 /*******************************************************************
@@ -240,59 +328,33 @@ void ChatServer::ClientThread(int clientSocket)
 
 /*******************************************************************
  *
- *      ChatServer::InitializeConnection
+ *      ChatServer::AddNewUser
  *
  *******************************************************************/
-bool ChatServer::InitializeConnection(int newSocket, string& newUsername)
+void ChatServer::AddNewUser(string newUser, int socket_fd)
 {
-    string nameRequest = string(USERNAME_REQUEST) + MSG_END;
-    string otherUsers = CreateAllUsersMsg();
-    string invalidName = string(USERNAME_TAKEN) + MSG_END;
-
-    send(newSocket, nameRequest.c_str(), nameRequest.length(), 0);
-    newUsername = ReceiveFromClient(newSocket, "connecting user");
-    newUsername.pop_back();
-
-    if(UsernameAvailable(newUsername))
-    {
-        send(newSocket, otherUsers.c_str(), otherUsers.length(), 0);
-        NewConnection(newUsername);
-        AddNewUser(newUsername, newSocket);
-        DisplayMsg(newUsername + " connected");
-        return true;
-    }
-    else
-    {
-        send(newSocket, invalidName.c_str(), invalidName.length(), 0);
-        close(newSocket);
-        return false;
-    }
+    updateLock.lock();
+    usernames.push_back(newUser);
+    clientSockets.insert(pair<string,int>(newUser, socket_fd));
+    updateLock.unlock();
 }
 
 /*******************************************************************
  *
- *      ChatServer::ReceiveFromClient
+ *      ChatServer::RemoveUser
  *
  *******************************************************************/
-string ChatServer::ReceiveFromClient(int clientSocket, string username)
+void ChatServer::RemoveUser(string username)
 {
-    string currentMsg;
-    char msg[BUFFER_LENGTH];
-    int numBytes;
+    vector<string>::iterator usernameIt;
+    map<string,int>::iterator socketIt;
 
-    do
-    {
-        memset(msg, 0, BUFFER_LENGTH);
-        numBytes = recv(clientSocket, msg, BUFFER_LENGTH, 0);
-        if(numBytes < 0)
-        {
-            DisplayMsg("ERROR: could not receive from [" + username + "]");
-            return "";
-        }
-        currentMsg += string(msg, numBytes);
-    } while(msg[numBytes-1] != MSG_END);
-
-    return currentMsg;
+    updateLock.lock();
+    usernameIt = find(usernames.begin(), usernames.end(), username);
+    usernames.erase(usernameIt);
+    socketIt = clientSockets.find(username);
+    clientSockets.erase(socketIt);
+    updateLock.unlock();
 }
 
 /*******************************************************************
@@ -372,98 +434,28 @@ void ChatServer::Disconnection(string username)
 
 /*******************************************************************
  *
- *      ChatServer::ServerShutdown
+ *      ChatServer::ReceiveFromClient
  *
  *******************************************************************/
-void ChatServer::ServerShutdown()
+string ChatServer::ReceiveFromClient(int clientSocket, string username)
 {
-    close(listenSocket);
-    DisplayMsg("\nServer Shutting Down, Notifying Clients...");
-    string msg = string(SERVER_SHUTDOWN) + MSG_END;
-    Broadcast(" ", msg);
-    CloseAllSockets();
-}
+    string currentMsg;
+    char msg[BUFFER_LENGTH];
+    int numBytes;
 
-/*******************************************************************
- *
- *      ChatServer::UsernameAvailable
- *
- *******************************************************************/
-bool ChatServer::UsernameAvailable(string newUser)
-{
-    bool available = true;
-
-    updateLock.lock();
-    if(find(usernames.begin(), usernames.end(), newUser) != usernames.end())
-        available = false;
-    updateLock.unlock();
-
-    return available;
-}
-
-/*******************************************************************
- *
- *      ChatServer::AddNewUser
- *
- *******************************************************************/
-void ChatServer::AddNewUser(string newUser, int socket_fd)
-{
-    updateLock.lock();
-    usernames.push_back(newUser);
-    clientSockets.insert(pair<string,int>(newUser, socket_fd));
-    updateLock.unlock();
-}
-
-/*******************************************************************
- *
- *      ChatServer::RemoveUser
- *
- *******************************************************************/
-void ChatServer::RemoveUser(string username)
-{
-    vector<string>::iterator usernameIt;
-    map<string,int>::iterator socketIt;
-
-    updateLock.lock();
-    usernameIt = find(usernames.begin(), usernames.end(), username);
-    usernames.erase(usernameIt);
-    socketIt = clientSockets.find(username);
-    clientSockets.erase(socketIt);
-    updateLock.unlock();
-}
-
-/*******************************************************************
- *
- *      ChatServer::CreateAllUsersMsg
- *
- *******************************************************************/
-string ChatServer::CreateAllUsersMsg()
-{
-    string allUsers = string(OTHER_USERS);
-    vector<string>::iterator userIterator;
-
-    updateLock.lock();
-    for(userIterator = usernames.begin(); userIterator != usernames.end(); userIterator++)
+    do
     {
-        allUsers += USER_TAG;
-        allUsers += *userIterator;
-    }
-    allUsers += MSG_END;
-    updateLock.unlock();
+        memset(msg, 0, BUFFER_LENGTH);
+        numBytes = recv(clientSocket, msg, BUFFER_LENGTH, 0);
+        if(numBytes < 0)
+        {
+            DisplayMsg("ERROR: could not receive from [" + username + "]");
+            return "";
+        }
+        currentMsg += string(msg, numBytes);
+    } while(msg[numBytes-1] != MSG_END);
 
-    return allUsers;
-}
-
-/*******************************************************************
- *
- *      ChatServer::DisplayMsg
- *
- *******************************************************************/
-void ChatServer::DisplayMsg(string msg)
-{
-    displayLock.lock();
-    cout << msg << endl;
-    displayLock.unlock();
+    return currentMsg;
 }
 
 /*******************************************************************
@@ -494,7 +486,7 @@ bool ChatServer::CompareTag(string tag, string checkTag)
 string ChatServer::GetDestination(string msg)
 {
     int start = msg.find(USER_TAG)+1;
-    int finish = msg.find(MSG_TAG);
+    int finish = msg.find_first_of(MSG_TAG);
     return msg.substr(start, finish-start);
 }
 
@@ -505,8 +497,8 @@ string ChatServer::GetDestination(string msg)
  *******************************************************************/
 string ChatServer::GetFilename(string msg)
 {
-    int start = msg.find(MSG_TAG)+1;
-    int finish = msg.find(MSG_TAG, start);
+    int start = msg.find_first_of(MSG_TAG)+1;
+    int finish = msg.find_last_of(MSG_TAG);
     return msg.substr(start, finish-start);
 }
 
@@ -517,8 +509,8 @@ string ChatServer::GetFilename(string msg)
  *******************************************************************/
 string ChatServer::GetMsg(string msg)
 {
-    int start = msg.find(MSG_TAG)+1;
-    int finish = msg.find(MSG_TAG, start);
+    int start = msg.find_first_of(MSG_TAG)+1;
+    int finish = msg.find_last_of(MSG_TAG);
     return msg.substr(start, finish-start);
 }
 
@@ -536,14 +528,13 @@ string ChatServer::GetFile(string msg)
 
 /*******************************************************************
  *
- *      ChatServer::CloseAllSockets
+ *      ChatServer::DisplayMsg
  *
  *******************************************************************/
-void ChatServer::CloseAllSockets()
+void ChatServer::DisplayMsg(string msg)
 {
-    vector<string>::iterator it;
-
-    for(it = usernames.begin(); it != usernames.end(); it++)
-        close(clientSockets[*it]);
+    displayLock.lock();
+    cout << msg << endl;
+    displayLock.unlock();
 }
 

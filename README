@@ -1,0 +1,106 @@
+#########################################################################################################
+#													#
+#		Name:	William Posey									#
+#		UFID:	0857-1846									#
+#		Email:	willposey@ufl.edu								#
+#		Course:	CNT5106 Computer Networks							#
+#													#
+#########################################################################################################
+
+The following is a series of steps to follow in order to demonstrate the client and server programs
+
+#########################################################################################################
+#													#
+#		Demo Steps										#
+#													#
+#########################################################################################################
+
+
+This file contains specifications for compilation and execution of both client and server
+programs, command definitions for both client and server, and required files.
+
+#########################################################################################################
+#		Required Files										#
+#########################################################################################################
+ChatServer.cpp
+ChatServer.h
+ChatClient.cpp
+ChatClient.h
+MessageDefs.h
+Makefile
+
+#########################################################################################################
+#		Compilation										#
+#########################################################################################################
+In order to compile both the client and server, run the command "make all".
+In order to remove object files and executables, run the command "make clean".
+In order to compile only the server, run the command "make _server".
+In order to remove only the server object files and executable, run the command "make server_clean".
+In order to compile only the client, run the command "make _client".
+In order to remove only the client object files and executable, run the command "make client_clean".
+
+#########################################################################################################
+#		Execution										#
+#########################################################################################################
+--- SERVER ---
+The executable for the sever is "server"
+Run "./server <port>" at the command line to execute the server program
+
+--- CLIENT ---
+The executable for the client is "client"
+Run "./client <username> <port>" at the command line to execute the client program
+
+#########################################################################################################
+#		Commands										#
+#########################################################################################################
+--------- SERVER ---------
+1) ctrl+c
+	- The only input that can be made to the server is sending SIGINT 
+	- Terminates the server
+	- Notifies all connected clients that the server has terminated
+
+--------- CLIENT ---------
+1) ctrl+c
+	- Sends SIGINT signal to client
+	- This will terminate the client and send a disconnection message to the server
+
+2) exit
+	- This will terminate the client and send a disconnection message to the server
+
+3) send message "message" <username>
+	- Sends the message specified within the quotation marks to the destination
+	- Surrounding quotation marks required for message
+	- Destination username must follow the message and a space
+	- EX: send message "hello!" user1
+
+4) send file "filename" <username>
+	- Sends the file specified by the file name within the quotation marks to the destination
+	- Surrounding quotation marks required for file name
+	- Destination username must follow the file name and a space
+	- Relative or absolute path to file may be specified if needed
+	- EX: send file "/home/user/file.txt" user1
+
+5) blockcast message "message" <username>
+	- Sends the message specified within the quotation marks to all users but specified username
+	- Surrounding quotation marks required for message
+	- Blocked username must follow the message and a space
+	- EX: blockcast message "hello!" user1
+
+6) blockcast file "filename" <username>
+	- Sends the file specified by the file name within the quotation marks to all users but specified username
+	- Surrounding quotation marks required for file name
+	- Blocked username must follow the message and a space
+	- Relative or absolute path to file may be specified if needed
+	- EX: blockcast file "../file.txt" user1
+
+7) broadcast message "message"
+	- Sends the message specified within the quotation marks to all users
+	- Surrounding quotation marks required for message
+	- EX: broadcast message "hello!" user1
+
+7) broadcast file "filename"
+	- Sends the file specified by the file name within the quotation marks to all users
+	- Surrounding quotation marks required for file name
+	- Relative or absolute path to file may be specified if needed
+	- EX: broadcast file "file.txt"
+
